@@ -19,6 +19,8 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -361,6 +363,32 @@ async def _shutdown_instances():
         stop_personal_instance(uid)
     for pid in list(project_instances):
         stop_project_instance(pid)
+
+
+# --- Static frontend (SPA) ---
+
+STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
+# In Docker, static files are at /app/static
+if not STATIC_DIR.exists():
+    STATIC_DIR = Path("/app/static")
+
+if STATIC_DIR.exists():
+    # Serve static assets (JS, CSS, images, etc.)
+    app.mount("/_app", StaticFiles(directory=STATIC_DIR / "_app"), name="static_app")
+    if (STATIC_DIR / "favicon.png").exists():
+        @app.get("/favicon.png")
+        async def favicon():
+            return FileResponse(STATIC_DIR / "favicon.png")
+
+    # SPA fallback — serve index.html for all unmatched routes
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        # Try to serve the exact file first (e.g. /robots.txt)
+        file_path = STATIC_DIR / full_path
+        if full_path and file_path.exists() and file_path.is_file():
+            return FileResponse(file_path)
+        # Otherwise serve index.html for SPA routing
+        return FileResponse(STATIC_DIR / "index.html")
 
 
 # --- Entrypoint ---

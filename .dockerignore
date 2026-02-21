@@ -1,7 +1,7 @@
 # Git
 .git/
 
-# Frontend (deployed separately)
+# Frontend build artifacts (source is needed for Docker build)
 src/frontend/node_modules/
 src/frontend/build/
 src/frontend/.svelte-kit/

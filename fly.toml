@@ -9,6 +9,10 @@ primary_region = 'iad'
 [build]
   dockerfile = 'Dockerfile'
 
+  [build.args]
+    VITE_SUPABASE_URL = 'https://mjosrqijnvjtkywadbxm.supabase.co'
+    VITE_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qb3NycWlqbnZqdGt5d2FkYnhtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAxNjY4NjIsImV4cCI6MjA1NTc0Mjg2Mn0.GCxA9ON3prp_FjpFsa1qiVPwLKJCdlFVHNJeBqpUGBo'
+
 [env]
   GATEWAY_DATA_DIR = '/data'
   GATEWAY_PORT = '9000'
