@@ -1,0 +1,54 @@
+# Fly.io configuration for AshAI Gateway
+# Deploy: fly deploy
+# First time: fly launch --no-deploy, then set secrets, then fly deploy
+
+app = "ashai-gateway"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  GATEWAY_PORT = "9000"
+  GATEWAY_DATA_DIR = "/data"
+  PYTHONUNBUFFERED = "1"
+
+# The gateway listens on port 9000
+[[services]]
+  protocol = "tcp"
+  internal_port = 9000
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 100
+    soft_limit = 80
+
+  [[services.http_checks]]
+    interval = 30000
+    grace_period = "10s"
+    method = "get"
+    path = "/gateway/health"
+    protocol = "http"
+    timeout = 5000
+
+# Persistent volume for user/project data (SQLite DBs, plugins, etc.)
+[mounts]
+  source = "ashai_data"
+  destination = "/data"
+
+# Machine sizing — needs enough RAM for gateway + spawned backend instances
+# Each backend instance uses ~100-200MB, so 1GB supports ~4-5 concurrent users
+[vm]
+  size = "shared-cpu-2x"
+  memory = "1024mb"

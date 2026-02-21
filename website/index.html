@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>AshAI — Just talk to it</title>
+	<meta name="description" content="AshAI coordinates your teams of AI agents. Multi-agent, local-first, provider-agnostic. Just open it and start talking.">
+	<link rel="stylesheet" href="style.css">
+	<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#9670;</text></svg>">
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+	<a href="/" class="nav-logo">AshAI</a>
+	<ul class="nav-links">
+		<li><a href="#features" class="hide-mobile">Features</a></li>
+		<li><a href="#download" class="hide-mobile">Download</a></li>
+		<li><a href="https://github.com/helperAI" class="hide-mobile">GitHub</a></li>
+		<li><a href="https://app.ashai.net" class="nav-cta">Open App</a></li>
+	</ul>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+	<div class="hero-inner">
+		<div class="hero-badge">Open source &middot; Free to use</div>
+		<h1>Your AI team.<br><span class="accent">Just talk to it.</span></h1>
+		<p class="subtitle">
+			AshAI gives you a team of AI agents that coordinate together.
+			No setup wizards, no complicated workflows — just open it and say what you need.
+		</p>
+		<div class="hero-actions">
+			<a href="https://app.ashai.net" class="btn-primary">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+				Start talking to Ash
+			</a>
+			<a href="#download" class="btn-secondary">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+				Download desktop app
+			</a>
+		</div>
+
+		<!-- Inline demo -->
+		<div class="demo">
+			<div class="demo-titlebar">
+				<span class="demo-dot"></span>
+				<span class="demo-dot"></span>
+				<span class="demo-dot"></span>
+				<span class="demo-title">AshAI</span>
+			</div>
+			<div class="demo-body">
+				<div class="demo-msg user">
+					Research the top 3 competitors to our product and write a summary comparing features
+				</div>
+				<div class="demo-msg assistant">
+					<div class="name">Ash</div>
+					I'll put together a competitive analysis for you. Let me spin up a research agent to dig into each competitor.
+					<br><br>
+					<span style="color: var(--text-muted); font-size: 12px;">&#9670; Spawned agent: Researcher &middot; &#9670; Spawned agent: Analyst</span>
+				</div>
+				<div class="demo-input">
+					<div class="demo-input-field">Message Ash...</div>
+					<div class="demo-input-btn">
+						<svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</section>
+
+<!-- Features -->
+<section class="features" id="features">
+	<h2>Why AshAI?</h2>
+	<p class="section-sub">It's like having a whole team — but you just talk to one person.</p>
+	<div class="features-grid">
+		<div class="feature-card">
+			<div class="feature-icon">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7c5cfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+			</div>
+			<h3>Multi-agent teams</h3>
+			<p>Ash orchestrates specialized agents — researchers, writers, coders — that work together on your task. You just say what you need.</p>
+		</div>
+		<div class="feature-card">
+			<div class="feature-icon">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7c5cfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+			</div>
+			<h3>Just talk to it</h3>
+			<p>No menus to navigate, no modes to learn. Open AshAI, type what you want, and Ash handles the rest. It's a conversation.</p>
+		</div>
+		<div class="feature-card">
+			<div class="feature-icon">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7c5cfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+			</div>
+			<h3>Your data, your control</h3>
+			<p>Everything runs locally or in your own cloud. Your conversations and data never touch our servers. Bring your own API keys.</p>
+		</div>
+		<div class="feature-card">
+			<div class="feature-icon">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7c5cfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+			</div>
+			<h3>Any AI provider</h3>
+			<p>Works with Anthropic Claude, OpenAI GPT, Google Gemini, or local models via Ollama. Switch freely — no lock-in.</p>
+		</div>
+		<div class="feature-card">
+			<div class="feature-icon">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7c5cfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+			</div>
+			<h3>Extensible plugins</h3>
+			<p>Add new tools and capabilities with a simple plugin system. Give your agents access to databases, APIs, or custom workflows.</p>
+		</div>
+		<div class="feature-card">
+			<div class="feature-icon">
+				<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7c5cfc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+			</div>
+			<h3>Open source</h3>
+			<p>MIT licensed. Read the code, contribute, self-host — it's yours. Built in public by developers who use it daily.</p>
+		</div>
+	</div>
+</section>
+
+<!-- How it works -->
+<section class="how-it-works">
+	<h2>How it works</h2>
+	<div class="steps">
+		<div class="step">
+			<div class="step-number">1</div>
+			<div>
+				<h3>Open AshAI and say what you need</h3>
+				<p>Use the web app or desktop app. No account needed for the desktop version. Just type or paste your request — plain English is all you need.</p>
+			</div>
+		</div>
+		<div class="step">
+			<div class="step-number">2</div>
+			<div>
+				<h3>Ash assembles the right team</h3>
+				<p>Ash reads your request and spins up specialized agents — a researcher, a coder, an analyst — whatever the task needs. You see everything happening in real time.</p>
+			</div>
+		</div>
+		<div class="step">
+			<div class="step-number">3</div>
+			<div>
+				<h3>Agents work together, report back to you</h3>
+				<p>Your agents coordinate behind the scenes. They share context, divide up work, and deliver results back through Ash. Ask follow-ups, give feedback, iterate — just keep talking.</p>
+			</div>
+		</div>
+	</div>
+</section>
+
+<!-- Download -->
+<section class="download" id="download">
+	<h2>Get AshAI</h2>
+	<p class="section-sub">Run it on your machine or use it in the browser. Your choice.</p>
+	<div class="download-buttons">
+		<a href="#" class="download-btn" title="Coming soon">
+			<svg viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83"/><path d="M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11"/></svg>
+			macOS
+		</a>
+		<a href="#" class="download-btn" title="Coming soon">
+			<svg viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+			Windows
+		</a>
+		<a href="#" class="download-btn" title="Coming soon">
+			<svg viewBox="0 0 24 24"><path d="M12.504 0c-.155 0-.311.001-.465.003-.788.01-1.573.07-2.338.2-.716.123-1.411.311-2.073.565-.662.254-1.284.576-1.855.96-.572.383-1.095.832-1.56 1.34-.464.51-.87 1.074-1.21 1.685-.341.61-.617 1.264-.818 1.944-.201.681-.33 1.384-.381 2.097-.051.713-.025 1.434.076 2.142.101.708.278 1.4.527 2.063.249.663.567 1.293.949 1.877.382.583.828 1.118 1.329 1.595.5.476 1.054.895 1.65 1.244.598.349 1.236.627 1.901.826.665.199 1.354.321 2.053.363.7.042 1.406.003 2.098-.114.692-.117 1.366-.313 2.006-.581.64-.268 1.242-.607 1.793-1.01.55-.403 1.048-.87 1.483-1.39.434-.521.805-1.096 1.104-1.71.298-.615.525-1.266.674-1.94.149-.673.221-1.363.214-2.053-.007-.691-.093-1.378-.256-2.043-.163-.665-.403-1.305-.713-1.904-.311-.598-.691-1.157-1.133-1.664-.441-.507-.943-.962-1.495-1.356-.551-.394-1.15-.726-1.783-.987-.633-.261-1.299-.453-1.98-.567-.682-.114-1.377-.153-2.068-.114zm.057 1.396c.624-.028 1.256.017 1.873.134.616.117 1.218.305 1.79.558.573.253 1.112.57 1.602.943.49.373.931.802 1.314 1.278.383.476.706 1.001.964 1.563.257.562.448 1.158.567 1.775.119.617.166 1.25.14 1.879-.026.629-.126 1.253-.296 1.857-.171.604-.412 1.183-.719 1.723-.307.54-.678 1.04-1.104 1.487-.427.447-.908.841-1.434 1.173-.525.332-1.093.601-1.69.798-.597.197-1.22.322-1.852.371-.632.05-1.27.024-1.895-.077-.625-.101-1.233-.276-1.808-.521-.575-.245-1.115-.558-1.607-.93-.492-.373-.936-.804-1.323-1.286-.386-.482-.714-1.014-.977-1.585-.262-.571-.458-1.177-.582-1.804-.123-.627-.174-1.27-.151-1.908.023-.639.119-1.273.286-1.887.167-.614.405-1.203.709-1.753.304-.55.672-1.059 1.097-1.514.425-.455.905-.856 1.432-1.195.527-.34 1.098-.615 1.698-.818.601-.203 1.23-.333 1.868-.384.319-.026.639-.035.958-.025z"/></svg>
+			Linux
+		</a>
+	</div>
+	<p class="download-note">Desktop downloads coming soon. Use the web app in the meantime.</p>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+	<div class="cta-inner">
+		<h2>Ready to try it?</h2>
+		<p>No download needed. Sign up and start talking to Ash in your browser — takes 30 seconds.</p>
+		<a href="https://app.ashai.net" class="btn-primary">
+			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+			Open AshAI
+		</a>
+	</div>
+</section>
+
+<!-- Footer -->
+<footer>
+	<div class="footer-logo">AshAI</div>
+	<ul class="footer-links">
+		<li><a href="https://github.com/helperAI">GitHub</a></li>
+		<li><a href="https://app.ashai.net">Web App</a></li>
+		<li><a href="#features">Features</a></li>
+	</ul>
+</footer>
+
+</body>
+</html>

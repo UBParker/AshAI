@@ -1,0 +1,50 @@
+# Git
+.git/
+
+# Frontend (deployed separately)
+src/frontend/node_modules/
+src/frontend/build/
+src/frontend/.svelte-kit/
+
+# Tauri desktop (not needed for web)
+src-tauri/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+
+# Data & secrets
+data/
+*.db
+.env
+.env.local
+.env.production
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+
+# Test & lint
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+tests/
+
+# Website (static marketing site)
+website/
+
+# Misc
+*.log
+tmp/
+*.md
+LICENSE
+Makefile
+pyinstaller.spec

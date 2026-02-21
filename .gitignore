@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Environment & secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Data directories (user/project instances)
+data/
+
+# Frontend
+src/frontend/build/
+src/frontend/node_modules/
+src/frontend/.svelte-kit/
+
+# Tauri
+src-tauri/target/
+src-tauri/binaries/ashai-server-*
+src-tauri/gen/
+
+# Lint / test / type
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Fly.io local state
+.fly/
+
+# Misc
+*.log
+tmp/

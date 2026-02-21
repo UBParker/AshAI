@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "helperai"
+version = "0.1.0"
+description = "Open-source AI coding assistant - provider-agnostic, extensible, local-first"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "helperAI Contributors" }]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "httpx>=0.28.0",
+    "sse-starlette>=2.2.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "aiosqlite>=0.20.0",
+    "python-dotenv>=1.0.0",
+    "anthropic>=0.40.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-httpx>=0.35.0",
+    "ruff>=0.9.0",
+    "httpx[http2]>=0.28.0",
+]
+auth = [
+    "bcrypt>=4.2.0",
+    "pyjwt>=2.10.0",
+    "cryptography>=44.0.0",
+]
+mcp = [
+    "mcp>=1.0.0",
+]
+computer-use = [
+    "Pillow>=10.0.0",
+    "pyautogui>=0.9.54",
+]
+desktop = [
+    "pyinstaller>=6.0",
+]
+gateway = [
+    "supabase>=2.0",
+]
+
+[project.scripts]
+helperai = "helperai.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/helperai"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["helperai"]

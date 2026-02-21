@@ -1,0 +1,90 @@
+/**
+ * Auth module — wraps Supabase auth for AshAI.
+ * Provides sign-up, sign-in, sign-out, and session management.
+ */
+
+import { createClient } from '@supabase/supabase-js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
+import { writable } from 'svelte/store';
+
+let supabase = null;
+
+function getSupabase() {
+	if (!supabase && SUPABASE_URL && SUPABASE_ANON_KEY) {
+		supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+	}
+	return supabase;
+}
+
+/** Whether Supabase auth is configured */
+export function isAuthEnabled() {
+	return !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+}
+
+/** Current user store — null if not logged in */
+export const currentUser = writable(null);
+
+/** Sign up with email and password */
+export async function signUp(email, password) {
+	const sb = getSupabase();
+	if (!sb) throw new Error('Auth not configured');
+
+	const { data, error } = await sb.auth.signUp({ email, password });
+	if (error) throw error;
+	return data;
+}
+
+/** Sign in with email and password */
+export async function signIn(email, password) {
+	const sb = getSupabase();
+	if (!sb) throw new Error('Auth not configured');
+
+	const { data, error } = await sb.auth.signInWithPassword({ email, password });
+	if (error) throw error;
+	return data;
+}
+
+/** Sign out */
+export async function signOut() {
+	const sb = getSupabase();
+	if (!sb) return;
+
+	const { error } = await sb.auth.signOut();
+	if (error) throw error;
+	currentUser.set(null);
+}
+
+/** Get current session (access token + user) */
+export async function getSession() {
+	const sb = getSupabase();
+	if (!sb) return null;
+
+	const { data: { session } } = await sb.auth.getSession();
+	return session;
+}
+
+/** Get the current access token (JWT) */
+export async function getAccessToken() {
+	const session = await getSession();
+	return session?.access_token || null;
+}
+
+/** Listen for auth state changes */
+export function onAuthStateChange(callback) {
+	const sb = getSupabase();
+	if (!sb) return { unsubscribe: () => {} };
+
+	const { data: { subscription } } = sb.auth.onAuthStateChange((event, session) => {
+		currentUser.set(session?.user || null);
+		callback(event, session);
+	});
+
+	return subscription;
+}
+
+/** Initialize — check for existing session */
+export async function initAuth() {
+	const session = await getSession();
+	currentUser.set(session?.user || null);
+	return session;
+}
