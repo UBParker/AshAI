@@ -45,6 +45,7 @@ website/
 *.log
 tmp/
 *.md
+!README.md
 LICENSE
 Makefile
 pyinstaller.spec

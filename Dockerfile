@@ -10,16 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[gateway]"
-
-# Copy source code
+# Copy project files needed for install
+COPY pyproject.toml README.md ./
 COPY src/ ./src/
-COPY .env.example ./
 
-# Install the package
-RUN pip install --no-cache-dir -e .
+# Install the package with gateway extras
+RUN pip install --no-cache-dir ".[gateway]"
 
 # Create data directory for user/project instances
 RUN mkdir -p /data/users /data/projects
