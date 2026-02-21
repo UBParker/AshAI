@@ -1,7 +1,7 @@
 """Gateway service — routes users to per-user AshAI backend instances.
 
 Validates Supabase JWTs, spawns/stops backend processes, reaps idle instances.
-Supports both personal instances (per-user) and project instances (shared).
+Proxies all /api/* requests to the correct backend instance.
 Run: python -m helperai.gateway
 """
 
@@ -16,10 +16,11 @@ import sys
 import time
 from pathlib import Path
 
+import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -128,8 +129,6 @@ def stop_project_instance(project_id: str) -> None:
 
 async def _wait_for_healthy(inst: Instance, timeout_secs: int = 30) -> None:
     """Poll instance health endpoint until ready."""
-    import httpx
-
     for _ in range(timeout_secs):
         await asyncio.sleep(1)
         if not _is_alive(inst):
@@ -172,6 +171,27 @@ def validate_jwt(token: str) -> dict:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}") from e
 
 
+def _extract_token(request: Request) -> str:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    raise HTTPException(status_code=401, detail="Missing Authorization header")
+
+
+def _get_instance_for_user(user_id: str, project_id: str | None = None) -> Instance:
+    """Look up the running instance for a user (personal or project)."""
+    if project_id:
+        inst = project_instances.get(project_id)
+    else:
+        inst = personal_instances.get(user_id)
+
+    if not inst or not _is_alive(inst):
+        raise HTTPException(status_code=503, detail="No active instance. Call /gateway/session first.")
+
+    inst.last_active = time.time()
+    return inst
+
+
 # --- FastAPI app ---
 
 app = FastAPI(title="AshAI Gateway", version="0.1.0")
@@ -191,20 +211,12 @@ app.add_middleware(
 
 
 class SessionResponse(BaseModel):
-    backend_url: str
     status: str
-
-
-def _extract_token(request: Request) -> str:
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:]
-    raise HTTPException(status_code=401, detail="Missing Authorization header")
 
 
 @app.post("/gateway/session", response_model=SessionResponse)
 async def create_session(request: Request):
-    """Validate JWT, ensure user has a running personal instance, return its URL."""
+    """Validate JWT, ensure user has a running personal instance."""
     token = _extract_token(request)
     user = validate_jwt(token)
     user_id = str(user["id"])
@@ -213,10 +225,7 @@ async def create_session(request: Request):
     inst = personal_instances.get(user_id)
     if inst and _is_alive(inst):
         inst.last_active = time.time()
-        return SessionResponse(
-            backend_url=f"http://127.0.0.1:{inst.port}",
-            status="running",
-        )
+        return SessionResponse(status="running")
 
     # Clean up dead instance if needed
     if inst:
@@ -227,15 +236,12 @@ async def create_session(request: Request):
     personal_instances[user_id] = inst
 
     await _wait_for_healthy(inst)
-    return SessionResponse(
-        backend_url=f"http://127.0.0.1:{inst.port}",
-        status="started",
-    )
+    return SessionResponse(status="started")
 
 
 @app.post("/gateway/project-session", response_model=SessionResponse)
 async def create_project_session(request: Request):
-    """Validate JWT + project membership, return shared project instance URL."""
+    """Validate JWT + project membership, spawn shared project instance."""
     token = _extract_token(request)
     user = validate_jwt(token)
     body = await request.json()
@@ -260,10 +266,7 @@ async def create_project_session(request: Request):
     if inst and _is_alive(inst):
         inst.last_active = time.time()
         inst.connected_users.add(str(user["id"]))
-        return SessionResponse(
-            backend_url=f"http://127.0.0.1:{inst.port}",
-            status="running",
-        )
+        return SessionResponse(status="running")
 
     # Clean up dead instance if needed
     if inst:
@@ -275,10 +278,7 @@ async def create_project_session(request: Request):
     inst.connected_users.add(str(user["id"]))
 
     await _wait_for_healthy(inst)
-    return SessionResponse(
-        backend_url=f"http://127.0.0.1:{inst.port}",
-        status="started",
-    )
+    return SessionResponse(status="started")
 
 
 @app.post("/gateway/leave-project")
@@ -317,6 +317,145 @@ async def gateway_health():
         "project_instances": len(project_instances),
         "used_ports": len(_used_ports),
     }
+
+
+# --- Reverse proxy: forward /api/* to user's backend instance ---
+
+
+@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def proxy_api(request: Request, path: str):
+    """Proxy all /api/* requests to the user's backend instance."""
+    token = _extract_token(request)
+    user = validate_jwt(token)
+    user_id = str(user["id"])
+    project_id = request.headers.get("X-Project-ID")
+
+    inst = _get_instance_for_user(user_id, project_id)
+    target_url = f"http://127.0.0.1:{inst.port}/api/{path}"
+
+    # Build headers to forward (skip hop-by-hop headers)
+    skip_headers = {"host", "authorization", "connection", "transfer-encoding"}
+    forward_headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in skip_headers
+    }
+
+    body = await request.body()
+
+    # Check if this is likely an SSE streaming response (chat endpoints)
+    is_streaming = path in ("chat",) or (path.startswith("agents/") and path.endswith("/message"))
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+        if is_streaming and request.method == "POST":
+            # Stream SSE responses
+            req = client.build_request(
+                method=request.method,
+                url=target_url,
+                content=body,
+                headers=forward_headers,
+            )
+            resp = await client.send(req, stream=True)
+
+            async def stream_body():
+                try:
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk
+                finally:
+                    await resp.aclose()
+
+            return StreamingResponse(
+                stream_body(),
+                status_code=resp.status_code,
+                headers={
+                    k: v for k, v in resp.headers.items()
+                    if k.lower() not in ("transfer-encoding", "connection")
+                },
+            )
+        else:
+            # Regular request/response
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                content=body,
+                headers=forward_headers,
+            )
+            return StreamingResponse(
+                content=iter([resp.content]),
+                status_code=resp.status_code,
+                headers={
+                    k: v for k, v in resp.headers.items()
+                    if k.lower() not in ("transfer-encoding", "connection", "content-encoding")
+                },
+            )
+
+
+# --- WebSocket proxy ---
+
+@app.websocket("/api/ws")
+async def proxy_websocket(ws: WebSocket):
+    """Proxy WebSocket connections to the user's backend instance."""
+    # Auth via query parameter since browsers can't set WS headers
+    token = ws.query_params.get("token")
+    if not token:
+        await ws.close(code=4001, reason="Missing token")
+        return
+
+    try:
+        user = validate_jwt(token)
+    except HTTPException:
+        await ws.close(code=4001, reason="Invalid token")
+        return
+
+    user_id = str(user["id"])
+    project_id = ws.query_params.get("project_id")
+
+    try:
+        inst = _get_instance_for_user(user_id, project_id)
+    except HTTPException:
+        await ws.close(code=4003, reason="No active instance")
+        return
+
+    await ws.accept()
+
+    # Connect to the backend WebSocket
+    backend_ws_url = f"ws://127.0.0.1:{inst.port}/api/ws"
+
+    try:
+        import websockets
+        async with websockets.connect(backend_ws_url) as backend_ws:
+            # Relay messages in both directions
+            async def client_to_backend():
+                try:
+                    while True:
+                        data = await ws.receive_text()
+                        await backend_ws.send(data)
+                except WebSocketDisconnect:
+                    pass
+
+            async def backend_to_client():
+                try:
+                    async for message in backend_ws:
+                        await ws.send_text(message)
+                except Exception:
+                    pass
+
+            # Run both relays concurrently, stop when either ends
+            done, pending = await asyncio.wait(
+                [
+                    asyncio.create_task(client_to_backend()),
+                    asyncio.create_task(backend_to_client()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+    except Exception as e:
+        logger.warning("WebSocket proxy error: %s", e)
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
 
 
 # --- Idle reaper ---

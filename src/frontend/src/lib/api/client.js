@@ -1,6 +1,9 @@
 /**
  * AshAI API client — HTTP, SSE, and WebSocket.
+ * In web mode, all requests go through the gateway proxy with JWT auth.
  */
+
+import { getAccessToken, isAuthEnabled } from '$lib/auth.js';
 
 let _backendBase = '';  // proxied via vite in dev, set dynamically in Tauri
 
@@ -18,7 +21,8 @@ export function setBackendUrl(url) {
 export async function waitForBackend(maxRetries = 30, intervalMs = 500) {
 	for (let i = 0; i < maxRetries; i++) {
 		try {
-			const res = await fetch(`${_backendBase}/api/health`);
+			const headers = await _authHeaders();
+			const res = await fetch(`${_backendBase}/api/health`, { headers });
 			if (res.ok) return true;
 		} catch {
 			// not ready yet
@@ -28,10 +32,19 @@ export async function waitForBackend(maxRetries = 30, intervalMs = 500) {
 	throw new Error('Backend did not start in time');
 }
 
+/** Build auth headers for gateway proxy mode */
+async function _authHeaders() {
+	if (!isAuthEnabled() || isTauri()) return {};
+	const token = await getAccessToken();
+	if (!token) return {};
+	return { 'Authorization': `Bearer ${token}` };
+}
+
 /** Standard JSON fetch wrapper */
 async function apiFetch(path, options = {}) {
+	const authHeaders = await _authHeaders();
 	const res = await fetch(`${_backendBase}${path}`, {
-		headers: { 'Content-Type': 'application/json', ...options.headers },
+		headers: { 'Content-Type': 'application/json', ...authHeaders, ...options.headers },
 		...options
 	});
 	if (!res.ok) {
@@ -165,9 +178,10 @@ export async function chatStream(message, agentId, onEvent, senderName = null) {
 		? { message, sender_name: senderName }
 		: { message, agent_id: agentId, sender_name: senderName };
 
+	const authHeaders = await _authHeaders();
 	const res = await fetch(`${_backendBase}${path}`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers: { 'Content-Type': 'application/json', ...authHeaders },
 		body: JSON.stringify(body)
 	});
 
@@ -223,7 +237,7 @@ export function disconnectWebSocket() {
  * @param {function} onEvent — called with each parsed event
  * @returns {{ close: function }}
  */
-export function connectWebSocket(onEvent) {
+export async function connectWebSocket(onEvent) {
 	_shouldReconnect = true;
 	_wsOnEvent = onEvent;
 
@@ -233,9 +247,17 @@ export function connectWebSocket(onEvent) {
 		const base = _backendBase.replace(/^http/, 'ws');
 		wsUrl = `${base}/api/ws`;
 	} else {
-		// Dev mode: use current page host (proxied by vite)
+		// Same-origin mode: use current page host
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		wsUrl = `${protocol}//${location.host}/api/ws`;
+	}
+
+	// In web auth mode, pass token as query parameter
+	if (isAuthEnabled() && !isTauri()) {
+		const token = await getAccessToken();
+		if (token) {
+			wsUrl += `?token=${encodeURIComponent(token)}`;
+		}
 	}
 
 	const ws = new WebSocket(wsUrl);

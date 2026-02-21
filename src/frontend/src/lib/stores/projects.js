@@ -4,7 +4,6 @@
 import { writable, get } from 'svelte/store';
 import { currentUser } from '$lib/auth.js';
 import { getAccessToken } from '$lib/auth.js';
-import { GATEWAY_URL } from '$lib/config.js';
 import {
 	fetchProjects,
 	createProjectInDb,
@@ -12,7 +11,6 @@ import {
 	removeProjectMember,
 } from '$lib/supabase.js';
 import {
-	setBackendUrl,
 	waitForBackend,
 	connectWebSocket,
 	disconnectWebSocket,
@@ -62,13 +60,13 @@ export async function leaveProject(projectId) {
  */
 export async function switchToProject(project, onWebSocketEvent) {
 	const token = await getAccessToken();
-	if (!token || !GATEWAY_URL) throw new Error('Not authenticated');
+	if (!token) throw new Error('Not authenticated');
 
 	// Disconnect current WebSocket
 	disconnectWebSocket();
 
 	// Request project session from gateway
-	const res = await fetch(`${GATEWAY_URL}/gateway/project-session`, {
+	const res = await fetch('/gateway/project-session', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${token}`,
@@ -82,12 +80,10 @@ export async function switchToProject(project, onWebSocketEvent) {
 		throw new Error(`Failed to start project session: ${text}`);
 	}
 
-	const { backend_url } = await res.json();
-	setBackendUrl(backend_url);
 	await waitForBackend();
 
 	// Reconnect WebSocket and refresh state
-	connectWebSocket(onWebSocketEvent);
+	await connectWebSocket(onWebSocketEvent);
 	await refreshAgents();
 	clearMessages();
 	currentProject.set(project);
@@ -99,7 +95,7 @@ export async function switchToProject(project, onWebSocketEvent) {
  */
 export async function switchToPersonal(onWebSocketEvent) {
 	const token = await getAccessToken();
-	if (!token || !GATEWAY_URL) throw new Error('Not authenticated');
+	if (!token) throw new Error('Not authenticated');
 
 	const proj = get(currentProject);
 
@@ -108,7 +104,7 @@ export async function switchToPersonal(onWebSocketEvent) {
 
 	// Leave project if currently in one
 	if (proj) {
-		await fetch(`${GATEWAY_URL}/gateway/leave-project`, {
+		await fetch('/gateway/leave-project', {
 			method: 'POST',
 			headers: {
 				'Authorization': `Bearer ${token}`,
@@ -119,7 +115,7 @@ export async function switchToPersonal(onWebSocketEvent) {
 	}
 
 	// Get personal session
-	const res = await fetch(`${GATEWAY_URL}/gateway/session`, {
+	const res = await fetch('/gateway/session', {
 		method: 'POST',
 		headers: {
 			'Authorization': `Bearer ${token}`,
@@ -129,12 +125,10 @@ export async function switchToPersonal(onWebSocketEvent) {
 
 	if (!res.ok) throw new Error('Failed to start personal session');
 
-	const { backend_url } = await res.json();
-	setBackendUrl(backend_url);
 	await waitForBackend();
 
 	// Reconnect WebSocket and refresh state
-	connectWebSocket(onWebSocketEvent);
+	await connectWebSocket(onWebSocketEvent);
 	await refreshAgents();
 	clearMessages();
 	currentProject.set(null);

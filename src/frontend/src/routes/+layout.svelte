@@ -7,7 +7,6 @@
 	import { handleApprovalEvent } from '$lib/stores/approvals.js';
 	import { connectWebSocket, disconnectWebSocket, isTauri, setBackendUrl, waitForBackend, getSettings } from '$lib/api/client.js';
 	import { isAuthEnabled, initAuth, getAccessToken, signOut, currentUser } from '$lib/auth.js';
-	import { GATEWAY_URL } from '$lib/config.js';
 	import { currentProject } from '$lib/stores/projects.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -61,7 +60,7 @@
 			} catch (err) {
 				loadingMessage = `Failed to start: ${err.message}`;
 			}
-		} else if (isAuthEnabled() && GATEWAY_URL) {
+		} else if (isAuthEnabled()) {
 			// --- Web mode with auth (app.ashai.net) ---
 			if (isPublicPage()) {
 				backendReady = true;
@@ -76,11 +75,11 @@
 				return;
 			}
 
-			// We have a session — connect to gateway
+			// We have a session — tell gateway to spawn our instance
 			try {
 				loadingMessage = 'Connecting to your workspace...';
 				const token = await getAccessToken();
-				const res = await fetch(`${GATEWAY_URL}/gateway/session`, {
+				const res = await fetch('/gateway/session', {
 					method: 'POST',
 					headers: {
 						'Authorization': `Bearer ${token}`,
@@ -92,9 +91,7 @@
 					throw new Error('Could not start workspace');
 				}
 
-				const { backend_url } = await res.json();
-				setBackendUrl(backend_url);
-
+				// Backend URL stays as '' — gateway proxies /api/* for us
 				loadingMessage = 'Connecting to Ash...';
 				await waitForBackend();
 				backendReady = true;
@@ -111,7 +108,7 @@
 
 	async function startApp() {
 		refreshAgents();
-		connectWebSocket(wsEventHandler);
+		await connectWebSocket(wsEventHandler);
 
 		// Check if onboarding is needed
 		try {
@@ -138,8 +135,8 @@
 		try {
 			// Tell gateway to stop our instance
 			const token = await getAccessToken();
-			if (token && GATEWAY_URL) {
-				await fetch(`${GATEWAY_URL}/gateway/logout`, {
+			if (token) {
+				await fetch('/gateway/logout', {
 					method: 'POST',
 					headers: { 'Authorization': `Bearer ${token}` },
 				}).catch(() => {});

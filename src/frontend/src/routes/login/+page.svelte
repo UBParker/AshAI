@@ -1,8 +1,7 @@
 <script>
 	import { goto } from '$app/navigation';
 	import { signIn, signUp } from '$lib/auth.js';
-	import { GATEWAY_URL } from '$lib/config.js';
-	import { setBackendUrl, waitForBackend } from '$lib/api/client.js';
+	import { waitForBackend } from '$lib/api/client.js';
 
 	let isSignUp = $state(false);
 	let email = $state('');
@@ -58,7 +57,7 @@
 		const token = await getAccessToken();
 		if (!token) throw new Error('Not authenticated');
 
-		const res = await fetch(`${GATEWAY_URL}/gateway/session`, {
+		const res = await fetch('/gateway/session', {
 			method: 'POST',
 			headers: {
 				'Authorization': `Bearer ${token}`,
@@ -70,9 +69,6 @@
 			const body = await res.text();
 			throw new Error(`Failed to start workspace: ${body}`);
 		}
-
-		const { backend_url } = await res.json();
-		setBackendUrl(backend_url);
 
 		loadingMessage = 'Connecting to Ash...';
 		await waitForBackend();

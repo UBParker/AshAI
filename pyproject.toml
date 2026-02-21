@@ -48,6 +48,7 @@ desktop = [
 ]
 gateway = [
     "supabase>=2.0",
+    "websockets>=13.0",
 ]
 
 [project.scripts]
