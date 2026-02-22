@@ -24,13 +24,29 @@ export function isAuthEnabled() {
 /** Current user store — null if not logged in */
 export const currentUser = writable(null);
 
-/** Sign up with email and password */
-export async function signUp(email, password) {
+/** Sign up with email, password, and display name */
+export async function signUp(email, password, displayName = '') {
 	const sb = getSupabase();
 	if (!sb) throw new Error('Auth not configured');
 
-	const { data, error } = await sb.auth.signUp({ email, password });
+	const { data, error } = await sb.auth.signUp({
+		email,
+		password,
+		options: {
+			data: { display_name: displayName || email.split('@')[0] }
+		}
+	});
 	if (error) throw error;
+
+	// Update the profile with the display name
+	if (data.user && displayName) {
+		await sb.from('profiles').upsert({
+			id: data.user.id,
+			email,
+			display_name: displayName,
+		});
+	}
+
 	return data;
 }
 

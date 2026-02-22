@@ -4,6 +4,7 @@
 	import { waitForBackend } from '$lib/api/client.js';
 
 	let isSignUp = $state(false);
+	let name = $state('');
 	let email = $state('');
 	let password = $state('');
 	let error = $state('');
@@ -11,6 +12,10 @@
 	let loadingMessage = $state('');
 
 	async function handleSubmit() {
+		if (isSignUp && !name.trim()) {
+			error = 'Please enter your name.';
+			return;
+		}
 		if (!email.trim() || !password.trim()) {
 			error = 'Please enter your email and password.';
 			return;
@@ -26,7 +31,7 @@
 		try {
 			if (isSignUp) {
 				loadingMessage = 'Creating your account...';
-				const data = await signUp(email, password);
+				const data = await signUp(email, password, name.trim());
 
 				// If email confirmation is required
 				if (!data.session) {
@@ -94,6 +99,15 @@
 			<p class="tagline">{isSignUp ? 'Create your account' : 'Welcome back'}</p>
 
 			<div class="form">
+				{#if isSignUp}
+					<input
+						type="text"
+						bind:value={name}
+						onkeydown={handleKeydown}
+						placeholder="Your name"
+						autocomplete="name"
+					/>
+				{/if}
 				<input
 					type="email"
 					bind:value={email}

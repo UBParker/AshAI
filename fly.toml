@@ -11,7 +11,7 @@ primary_region = 'iad'
 
   [build.args]
     VITE_SUPABASE_URL = 'https://mjosrqijnvjtkywadbxm.supabase.co'
-    VITE_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qb3NycWlqbnZqdGt5d2FkYnhtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAxNjY4NjIsImV4cCI6MjA1NTc0Mjg2Mn0.GCxA9ON3prp_FjpFsa1qiVPwLKJCdlFVHNJeBqpUGBo'
+    VITE_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qb3NycWlqbnZqdGt5d2FkYnhtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MzYyNjEsImV4cCI6MjA4NzIxMjI2MX0.N6j-2ND2XS8w5l_cXbabXTX26KMI4So7q1UAIHz-Ko4'
 
 [env]
   GATEWAY_DATA_DIR = '/data'

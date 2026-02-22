@@ -11,11 +11,10 @@ RUN npm install
 
 COPY src/frontend/ ./
 
-# Frontend env vars are baked in at build time
-ARG VITE_SUPABASE_URL=""
-ARG VITE_SUPABASE_ANON_KEY=""
-# Gateway URL is empty — frontend is served from the same origin
-ARG VITE_GATEWAY_URL=""
+# Frontend env vars baked in at build time (anon key is public, safe to embed)
+ENV VITE_SUPABASE_URL=https://mjosrqijnvjtkywadbxm.supabase.co
+ENV VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qb3NycWlqbnZqdGt5d2FkYnhtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2MzYyNjEsImV4cCI6MjA4NzIxMjI2MX0.N6j-2ND2XS8w5l_cXbabXTX26KMI4So7q1UAIHz-Ko4
+ENV VITE_GATEWAY_URL=
 
 RUN npm run build
 
