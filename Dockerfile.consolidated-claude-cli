@@ -1,69 +1,72 @@
 # AshAI Claude CLI — Alpine-based Claude Code CLI container.
-# Consolidates: Dockerfile.claude-browser, Dockerfile.claude-x11, Dockerfile.claude-final, Dockerfile.claude-authenticated
 #
-# Build variants:
-#   Minimal (no browser):     docker build -f Dockerfile.consolidated-claude-cli -t ashai-claude-cli .
-#   With browser + VNC:       docker build -f Dockerfile.consolidated-claude-cli --build-arg WITH_BROWSER=true --build-arg WITH_VNC=true -t ashai-claude-browser .
-#   With browser (X11 only):  docker build -f Dockerfile.consolidated-claude-cli --build-arg WITH_BROWSER=true -t ashai-claude-x11 .
+# Build:
+#   docker build -f Dockerfile.consolidated-claude-cli -t ashai-claude-cli .
 
 FROM node:20-alpine
 
-ARG WITH_BROWSER=false
-ARG WITH_VNC=false
-
-# --- Base packages (always needed) ---
+# --- Base packages ---
 RUN apk add --no-cache \
     python3 \
     py3-pip \
     py3-virtualenv \
-    curl
+    curl \
+    bash \
+    htop \
+    openssh-server \
+    git \
+    sudo
 
-# --- Browser packages (conditional) ---
-RUN if [ "$WITH_BROWSER" = "true" ]; then \
-    apk add --no-cache \
-        chromium xvfb xauth dbus \
-        ttf-freefont font-noto-emoji \
-        mesa-dri-gallium udev; \
-    fi
-
-# --- VNC packages (conditional, requires WITH_BROWSER) ---
-RUN if [ "$WITH_VNC" = "true" ]; then \
-    apk add --no-cache x11vnc; \
-    fi
+# Configure sshd
+RUN mkdir -p /var/run/sshd \
+    && ssh-keygen -A \
+    && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 # Install Claude CLI
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create non-root user
-RUN adduser -D -s /bin/sh claude
+# Create non-root user with sudo access
+RUN adduser -D -s /bin/bash claude \
+    && echo "claude:claude" | chpasswd \
+    && addgroup claude wheel \
+    && echo '%wheel ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
 
-# --- Python virtual environment (no --break-system-packages needed) ---
+# --- Python virtual environment ---
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir aiohttp
+RUN pip install --no-cache-dir aiohttp requests \
+    && apk del py3-pip py3-virtualenv
 
-# Copy CLI-based API server
-COPY --chown=claude:claude claude_cli_server.py /home/claude/
+# Copy terminal controller (API server for claude_terminal provider)
+COPY --chown=claude:claude claude-terminal-controller.py /home/claude/
 
-# Setup directories
+# Copy bridge tools to /app
+COPY --chown=claude:claude claude-tool-bridge.py /app/
+COPY --chown=claude:claude report_to_eve.py /app/
+COPY --chown=claude:claude ashai-tools/ /app/ashai-tools/
+
+# Setup directories (/app/workspace is expected to be a host mount)
 RUN mkdir -p /home/claude/.config/@anthropic-ai/claude-code \
     && mkdir -p /home/claude/.cache \
+    && mkdir -p /home/claude/.ssh \
     && mkdir -p /tmp/.X11-unix \
-    && chown -R claude:claude /home/claude \
+    && mkdir -p /app/workspace \
+    && chown -R claude:claude /home/claude /app \
     && chmod 1777 /tmp/.X11-unix
 
-# Create entrypoint script that handles all variants
-RUN printf '#!/bin/sh\nset -e\n\n# Load auth file if mounted\nif [ -f /tmp/claude-auth.json ]; then\n    cp /tmp/claude-auth.json /home/claude/.config/@anthropic-ai/claude-code/auth.json\n    chmod 600 /home/claude/.config/@anthropic-ai/claude-code/auth.json\nfi\n\ncase "$1" in\n    auth)\n        echo "Starting X11 server for authentication..."\n        Xvfb :99 -screen 0 1280x1024x24 &\n        export DISPLAY=:99\n        sleep 2\n        if command -v x11vnc >/dev/null 2>&1; then\n            x11vnc -display :99 -forever -nopw -shared -rfbport 5900 &\n        fi\n        echo "Launching Claude CLI authentication..."\n        claude auth\n        echo "Authentication complete!"\n        ;;\n    server|"")\n        echo "Starting Claude CLI server..."\n        exec python3 /home/claude/claude_cli_server.py\n        ;;\n    *)\n        exec "$@"\n        ;;\nesac\n' > /home/claude/entrypoint.sh && \
+# Create entrypoint script
+RUN printf '#!/bin/sh\nset -e\n\n# Start sshd\nsudo /usr/sbin/sshd\n\n# Load auth file if mounted\nif [ -f /tmp/claude-auth.json ]; then\n    cp /tmp/claude-auth.json /home/claude/.config/@anthropic-ai/claude-code/auth.json\n    chmod 600 /home/claude/.config/@anthropic-ai/claude-code/auth.json\nfi\n\ncase "$1" in\n    server|"")\n        echo "Starting Claude Terminal Controller on port 8081..."\n        exec python3 /home/claude/claude-terminal-controller.py\n        ;;\n    *)\n        exec "$@"\n        ;;\nesac\n' > /home/claude/entrypoint.sh && \
     chmod +x /home/claude/entrypoint.sh
 
 USER claude
 WORKDIR /home/claude
 
-EXPOSE 8000
+EXPOSE 8081 22
 
-# Health check for the API server
+# Health check for the terminal controller
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/health 2>/dev/null || exit 1
+    CMD curl -f http://localhost:8081/api/status 2>/dev/null || exit 1
 
 ENTRYPOINT ["/home/claude/entrypoint.sh"]
 CMD ["server"]

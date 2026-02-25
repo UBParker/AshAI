@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import subprocess
+from pathlib import Path
 from typing import AsyncIterator, Optional
 import aiohttp
 import docker
@@ -14,6 +16,38 @@ from docker.models.containers import Container
 from helperai.llm.message_types import Message
 
 logger = logging.getLogger(__name__)
+
+
+def load_mounts_conf() -> dict:
+    """Load volume mounts from mounts.conf.
+
+    File format (one mount per line):
+        /host/path:/container/path
+        /host/path:/container/path:ro
+
+    Lines starting with # and blank lines are ignored.
+    """
+    volumes = {}
+    conf_path = Path(__file__).resolve().parents[3] / "mounts.conf"
+    if not conf_path.exists():
+        return volumes
+
+    for line in conf_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(":")
+        if len(parts) < 2:
+            logger.warning(f"Skipping invalid mount line: {line}")
+            continue
+        host_path = parts[0]
+        container_path = parts[1]
+        mode = parts[2] if len(parts) > 2 else "rw"
+        volumes[host_path] = {"bind": container_path, "mode": mode}
+
+    if volumes:
+        logger.info(f"Loaded {len(volumes)} mount(s) from {conf_path}")
+    return volumes
 
 
 class ClaudeDockerProvider:
@@ -121,8 +155,12 @@ class ClaudeDockerProvider:
             except docker.errors.NotFound:
                 pass  # Container doesn't exist, create new one
 
-            import os
             home_dir = os.path.expanduser("~")
+            volumes = {
+                f'{home_dir}/.claude-auth.json': {'bind': '/home/claude/.claude-auth.json', 'mode': 'ro'}
+            }
+            volumes.update(load_mounts_conf())
+
             container = self.docker_client.containers.run(
                 self.image_name,
                 name=name,
@@ -130,13 +168,10 @@ class ClaudeDockerProvider:
                 remove=False,
                 ports={'8000/tcp': None},  # Random port assignment
                 environment={
-                    'DISPLAY': ':99',
                     'AGENT_NAME': name,
                     'HOME': '/home/claude',
                 },
-                volumes={
-                    f'{home_dir}/.claude-auth.json': {'bind': '/home/claude/.claude-auth.json', 'mode': 'ro'}
-                }
+                volumes=volumes,
             )
 
             # Wait for container to be ready
