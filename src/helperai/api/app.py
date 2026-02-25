@@ -25,6 +25,22 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized")
 
+    # Reset any agents stuck in "running" from a previous crash
+    from sqlalchemy import update
+    from helperai.db.engine import get_session_factory
+    from helperai.db.models import Agent as AgentModel
+
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(
+            update(AgentModel)
+            .where(AgentModel.status == "running")
+            .values(status="idle")
+        )
+        if result.rowcount:
+            logger.info("Reset %d stale 'running' agents to 'idle'", result.rowcount)
+        await session.commit()
+
     # --- Event Bus ---
     from helperai.core.events import EventBus
 
@@ -99,6 +115,7 @@ async def lifespan(app: FastAPI):
         llm_registry.register(
             anthropic, is_default=(settings.default_provider == "anthropic")
         )
+        logger.info("Anthropic provider registered (base_url=%s)", _base_url)
 
     # Register Claude Docker provider if enabled (uses subscription via Docker containers!)
     if settings.claude_code_enabled or settings.default_provider == "claude_docker":
