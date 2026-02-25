@@ -47,6 +47,10 @@ async def lifespan(app: FastAPI):
         llm_registry.register(ollama, is_default=(settings.default_provider == "ollama"))
 
     if settings.openai_api_key.get_secret_value():
+        # base_url defaults to https://api.openai.com/v1 but can be overridden
+        # to route through the multi-provider proxy:
+        #   HELPERAI_OPENAI_BASE_URL=http://localhost:8082/openai
+        #   HELPERAI_OPENAI_API_KEY=proxy  (proxy injects real key)
         openai = OpenAICompatProvider(
             name="openai",
             base_url=settings.openai_base_url,
@@ -54,10 +58,44 @@ async def lifespan(app: FastAPI):
         )
         llm_registry.register(openai, is_default=(settings.default_provider == "openai"))
 
-    if settings.anthropic_api_key.get_secret_value():
+    # Register Gemini if key is set (or provider is requested)
+    _need_gemini = (
+        settings.default_provider == "gemini"
+        or settings.eve_provider == "gemini"
+        or settings.gemini_api_key.get_secret_value()
+    )
+    if _need_gemini:
+        from helperai.llm.gemini_provider import GeminiProvider
+
+        # base_url can be overridden to route through the multi-provider proxy:
+        #   HELPERAI_GEMINI_BASE_URL=http://localhost:8082/gemini
+        #   HELPERAI_GEMINI_API_KEY=proxy  (proxy injects real key via ?key=)
+        gemini = GeminiProvider(
+            name="gemini",
+            base_url=settings.gemini_base_url,
+            api_key=settings.gemini_api_key.get_secret_value(),
+        )
+        llm_registry.register(gemini, is_default=(settings.default_provider == "gemini"))
+        logger.info("Gemini provider registered (base_url=%s)", settings.gemini_base_url)
+
+    # Register Anthropic if it's the default, eve_provider, or has an API key
+    _need_anthropic = (
+        settings.default_provider == "anthropic"
+        or settings.eve_provider == "anthropic"
+        or settings.anthropic_api_key.get_secret_value()
+    )
+    if _need_anthropic:
         from helperai.llm.anthropic_provider import AnthropicProvider
 
-        anthropic = AnthropicProvider(api_key=settings.anthropic_api_key.get_secret_value())
+        # Use custom base_url if set (e.g. proxy inside Docker container)
+        _base_url = settings.anthropic_base_url
+        if _base_url == "https://api.anthropic.com/v1":
+            _base_url = None  # SDK default, no override needed
+
+        anthropic = AnthropicProvider(
+            api_key=settings.anthropic_api_key.get_secret_value() or "proxy",
+            base_url=_base_url,
+        )
         llm_registry.register(
             anthropic, is_default=(settings.default_provider == "anthropic")
         )
@@ -118,8 +156,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to register Claude Web Automation provider: {e}")
 
-    # Register Claude Terminal provider if enabled (uses Claude CLI in Docker container)
-    if settings.default_provider == "claude_terminal":
+    # Register Claude Terminal provider if it's default or eve_provider
+    _need_terminal = (
+        settings.default_provider == "claude_terminal"
+        or settings.eve_provider == "claude_terminal"
+    )
+    if _need_terminal:
         try:
             from helperai.llm.claude_terminal_provider import ClaudeTerminalProvider
 
@@ -128,10 +170,9 @@ async def lifespan(app: FastAPI):
                 check_status=True
             )
             llm_registry.register(
-                claude_terminal, is_default=True
+                claude_terminal, is_default=(settings.default_provider == "claude_terminal")
             )
             logger.info("Claude Terminal provider registered - using Claude CLI with your $20/month subscription!")
-            logger.info("Saving you $560+/month vs API costs!")
         except Exception as e:
             logger.error(f"Failed to register Claude Terminal provider: {e}")
 

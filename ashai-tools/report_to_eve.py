@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-AshAI Tool: Report to Ash
+AshAI Tool Bridge: Report to Ash
 Posts a report directly to the AshAI backend API.
+Claude CLI can call this from inside the Docker container.
 """
 
 import json
@@ -36,7 +37,9 @@ def report_to_eve(report, sender=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python report_to_eve.py <report> [--sender <name>]")
+        print("Usage: report_to_eve.py <report> [--sender <name>]")
+        print("\nExample:")
+        print('  report_to_eve.py "Analysis complete: found 3 issues" --sender CodeAnalyzer')
         sys.exit(1)
 
     sender = None

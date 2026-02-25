@@ -2,6 +2,19 @@
 #
 # Build:
 #   docker build -f Dockerfile.consolidated-claude-cli -t ashai-claude-cli .
+#
+# Provider API keys (pass at runtime via -e or docker-compose env):
+#   ANTHROPIC_API_KEY   — Anthropic  → proxied at /anthropic/* and legacy /*
+#   OPENAI_API_KEY      — OpenAI     → proxied at /openai/*
+#   GEMINI_API_KEY      — Gemini     → proxied at /gemini/*
+#   OLLAMA_BASE_URL     — Ollama     → proxied at /ollama/* (default: host.docker.internal:11434)
+#
+# Custom providers (arbitrary number):
+#   CUSTOM_<NAME>_URL       — base URL
+#   CUSTOM_<NAME>_API_KEY   — optional API key (Bearer auth)
+#   → proxied at /custom/<name>/*
+#
+# Proxy listens on PROXY_PORT (default 8082).
 
 FROM node:20-alpine
 
@@ -41,6 +54,9 @@ RUN pip install --no-cache-dir aiohttp requests \
 # Copy terminal controller (API server for claude_terminal provider)
 COPY --chown=claude:claude claude-terminal-controller.py /home/claude/
 
+# Copy multi-provider API proxy (routes /anthropic, /openai, /gemini, /ollama, /custom/*)
+COPY --chown=claude:claude multi-provider-proxy.py /home/claude/
+
 # Copy bridge tools to /app
 COPY --chown=claude:claude claude-tool-bridge.py /app/
 COPY --chown=claude:claude report_to_eve.py /app/
@@ -56,17 +72,58 @@ RUN mkdir -p /home/claude/.config/@anthropic-ai/claude-code \
     && chmod 1777 /tmp/.X11-unix
 
 # Create entrypoint script
-RUN printf '#!/bin/sh\nset -e\n\n# Start sshd\nsudo /usr/sbin/sshd\n\n# Load auth file if mounted\nif [ -f /tmp/claude-auth.json ]; then\n    cp /tmp/claude-auth.json /home/claude/.config/@anthropic-ai/claude-code/auth.json\n    chmod 600 /home/claude/.config/@anthropic-ai/claude-code/auth.json\nfi\n\ncase "$1" in\n    server|"")\n        echo "Starting Claude Terminal Controller on port 8081..."\n        exec python3 /home/claude/claude-terminal-controller.py\n        ;;\n    *)\n        exec "$@"\n        ;;\nesac\n' > /home/claude/entrypoint.sh && \
-    chmod +x /home/claude/entrypoint.sh
+RUN cat > /home/claude/entrypoint.sh << 'ENTRYPOINT_EOF'
+#!/bin/sh
+set -e
+
+# Start sshd
+sudo /usr/sbin/sshd
+
+# Load auth file if mounted
+if [ -f /tmp/claude-auth.json ]; then
+    cp /tmp/claude-auth.json /home/claude/.config/@anthropic-ai/claude-code/auth.json
+    chmod 600 /home/claude/.config/@anthropic-ai/claude-code/auth.json
+fi
+
+# Start multi-provider proxy if any API key is configured
+# Proxy runs on port 8082 (PROXY_PORT) and handles all providers:
+#   /anthropic/* → api.anthropic.com  (ANTHROPIC_API_KEY)
+#   /openai/*    → api.openai.com/v1  (OPENAI_API_KEY)
+#   /gemini/*    → generativelanguage.googleapis.com  (GEMINI_API_KEY)
+#   /ollama/*    → OLLAMA_BASE_URL    (no auth)
+#   /custom/X/*  → CUSTOM_X_URL      (CUSTOM_X_API_KEY)
+#   /*           → api.anthropic.com  (legacy compat)
+if [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$OPENAI_API_KEY" ] || [ -n "$GEMINI_API_KEY" ] || [ -n "$OLLAMA_BASE_URL" ]; then
+    echo "Starting multi-provider proxy on port ${PROXY_PORT:-8082}..."
+    python3 /home/claude/multi-provider-proxy.py &
+else
+    echo "WARNING: No provider API keys set — proxy not started (set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or OLLAMA_BASE_URL)"
+fi
+
+case "$1" in
+    server|"")
+        echo "Starting Claude Terminal Controller on port 8081..."
+        exec python3 /home/claude/claude-terminal-controller.py
+        ;;
+    proxy-only)
+        echo "Running proxy only (no terminal controller)..."
+        wait
+        ;;
+    *)
+        exec "$@"
+        ;;
+esac
+ENTRYPOINT_EOF
+RUN chmod +x /home/claude/entrypoint.sh
 
 USER claude
 WORKDIR /home/claude
 
-EXPOSE 8081 22
+EXPOSE 8081 8082 22
 
-# Health check for the terminal controller
+# Health check: terminal controller primary, proxy secondary
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8081/api/status 2>/dev/null || exit 1
+    CMD curl -f http://localhost:8081/api/status 2>/dev/null || curl -f http://localhost:8082/health 2>/dev/null || exit 1
 
 ENTRYPOINT ["/home/claude/entrypoint.sh"]
 CMD ["server"]

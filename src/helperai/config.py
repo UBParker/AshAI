@@ -30,7 +30,10 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr = SecretStr("")
     anthropic_base_url: str = "https://api.anthropic.com/v1"
     gemini_api_key: SecretStr = SecretStr("")
-    
+    # Base URL for Gemini; override to route through the multi-provider proxy:
+    #   HELPERAI_GEMINI_BASE_URL=http://localhost:8082/gemini
+    gemini_base_url: str = "https://generativelanguage.googleapis.com"
+
     # Claude Code Desktop (uses subscription, NO API COSTS!)
     claude_code_enabled: bool = True
     claude_code_headless: bool = True
@@ -44,6 +47,7 @@ class Settings(BaseSettings):
 
     # Eve
     eve_name: str = "Ash"
+    eve_provider: str = ""  # empty → use default_provider
     eve_model: str = ""  # empty → use default_model
 
     # Plugins directory

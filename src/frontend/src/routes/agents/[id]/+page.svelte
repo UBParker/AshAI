@@ -34,17 +34,25 @@
 		}
 	});
 
-	// Listen for WebSocket message events to refresh thread
+	// Listen for WebSocket events to refresh thread
 	onMount(() => {
 		function handleWebSocketMessage(event) {
 			if (event.detail?.agent_id === agentId) {
-				// Refresh the thread when a message is received for this agent
+				loadThread(agentId);
+			}
+		}
+		function handleStreamEnd(event) {
+			if (event.detail?.agent_id === agentId) {
 				loadThread(agentId);
 			}
 		}
 
 		window.addEventListener('ws:message', handleWebSocketMessage);
-		return () => window.removeEventListener('ws:message', handleWebSocketMessage);
+		window.addEventListener('ws:stream_end', handleStreamEnd);
+		return () => {
+			window.removeEventListener('ws:message', handleWebSocketMessage);
+			window.removeEventListener('ws:stream_end', handleStreamEnd);
+		};
 	});
 </script>
 
@@ -69,6 +77,7 @@
 		display: flex;
 		flex-direction: column;
 		flex: 1;
+		min-height: 0;
 		overflow: hidden;
 	}
 	.agent-header {

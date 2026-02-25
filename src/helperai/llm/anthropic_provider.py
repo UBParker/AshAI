@@ -17,9 +17,12 @@ logger = logging.getLogger(__name__)
 class AnthropicProvider:
     """Native Anthropic provider using the official SDK with streaming."""
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, base_url: str | None = None) -> None:
         self._name = "anthropic"
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        kwargs: dict = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = anthropic.AsyncAnthropic(**kwargs)
 
     @property
     def name(self) -> str:

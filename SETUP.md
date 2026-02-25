@@ -33,10 +33,15 @@ Edit `mounts.conf` — one mount per line, format is `host_path:container_path[:
 docker run -d \
   --name ashai-claude-cli \
   -p 8081:8081 \
+  -p 8082:8082 \
   -p 2222:22 \
+  -e ANTHROPIC_API_KEY=sk-ant-your-key-here \
   -v /path/to/AshAI:/app/workspace \
   ashai-claude-cli
 ```
+
+> **Note:** The `ANTHROPIC_API_KEY` is passed to the container where the Anthropic API proxy runs.
+> The host backend connects to the proxy at `localhost:8082` — the real key never leaves the container.
 
 ## 4. Install and Authenticate Claude CLI
 
@@ -75,6 +80,10 @@ Edit `.env` and set:
 
 ```
 HELPERAI_DEFAULT_PROVIDER=claude_terminal
+HELPERAI_EVE_PROVIDER=anthropic
+HELPERAI_EVE_MODEL=claude-sonnet-4-20250514
+HELPERAI_ANTHROPIC_API_KEY=proxy
+HELPERAI_ANTHROPIC_BASE_URL=http://localhost:8082
 HELPERAI_PORT=8000
 ```
 
@@ -120,6 +129,7 @@ The frontend runs on http://localhost:5173. Open it in your browser and message 
 |---------|-----------|---------------|---------|
 | Backend API | 8000 | — | AshAI backend |
 | Terminal Controller | 8081 | 8081 | Claude CLI API |
+| Anthropic Proxy | 8082 | 8082 | API key proxy for Anthropic |
 | SSH | 2222 | 22 | Container access |
 | Frontend | 5173 | — | Dev server |
 

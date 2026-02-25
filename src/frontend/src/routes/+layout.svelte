@@ -28,9 +28,15 @@
 	function wsEventHandler(event) {
 		handleAgentEvent(event);
 		handleApprovalEvent(event);
-		// Dispatch custom event for message updates
+		// Dispatch custom events for real-time updates
 		if (event.type === 'agent.message') {
 			window.dispatchEvent(new CustomEvent('ws:message', { detail: event }));
+		}
+		if (event.type === 'agent.stream_chunk') {
+			window.dispatchEvent(new CustomEvent('ws:stream_chunk', { detail: event }));
+		}
+		if (event.type === 'agent.stream_end') {
+			window.dispatchEvent(new CustomEvent('ws:stream_end', { detail: event }));
 		}
 	}
 

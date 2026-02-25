@@ -75,20 +75,43 @@ class AgentManager:
             )
             eve_model = result.scalar_one_or_none()
 
+            eve_provider = self._settings.eve_provider or self._settings.default_provider
+            eve_model_name = self._settings.eve_model or self._settings.default_model
+
             if eve_model is None:
                 eve_model = AgentModel(
                     name=self._settings.eve_name,
                     role=EVE_SYSTEM_PROMPT,
                     goal="Help the user with any task.",
                     status=AgentStatus.IDLE.value,
-                    provider_name=self._settings.default_provider,
-                    model_name=self._settings.eve_model or self._settings.default_model,
+                    provider_name=eve_provider,
+                    model_name=eve_model_name,
                     temperature=0.7,
                 )
                 eve_model.tool_names = EVE_TOOL_NAMES
                 session.add(eve_model)
                 await session.commit()
                 await session.refresh(eve_model)
+            else:
+                # Sync Eve's provider/model with current config
+                changed = False
+                if eve_model.provider_name != eve_provider:
+                    logger.info(
+                        "Updating Eve provider: %s → %s",
+                        eve_model.provider_name, eve_provider,
+                    )
+                    eve_model.provider_name = eve_provider
+                    changed = True
+                if eve_model.model_name != eve_model_name:
+                    logger.info(
+                        "Updating Eve model: %s → %s",
+                        eve_model.model_name, eve_model_name,
+                    )
+                    eve_model.model_name = eve_model_name
+                    changed = True
+                if changed:
+                    await session.commit()
+                    await session.refresh(eve_model)
 
             self._eve_id = eve_model.id
 

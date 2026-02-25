@@ -160,11 +160,13 @@
 	.chat-panel {
 		display: flex;
 		flex-direction: column;
-		height: 100%;
 		flex: 1;
+		min-height: 0;
+		overflow: hidden;
 	}
 	.messages {
 		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 		padding: 20px;
 		display: flex;
@@ -187,6 +189,7 @@
 		display: flex;
 		gap: 8px;
 		align-items: flex-end;
+		flex-shrink: 0;
 	}
 	textarea {
 		flex: 1;

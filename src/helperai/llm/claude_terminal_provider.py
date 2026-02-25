@@ -196,12 +196,11 @@ class ClaudeTerminalProvider:
         formatted_parts.append(
             "System: You are Claude CLI in /app/workspace. Auto-approval is ON - execute immediately.\n\n"
             "CRITICAL - Inter-Agent Messaging:\n"
-            "• LIST AGENTS: python3 message_agent.py --list  (always do this first to find Ash's ID)\n"
-            "• REPORT TO ASH: python3 message_agent.py <ash_id> 'your report'\n"
-            "• MESSAGE AGENT: python3 message_agent.py <agent_id> 'message'\n"
-            "• SPAWN AGENT: python3 spawn_agent.py <name> [role] [model] [persona]\n\n"
-            "Scripts are in: /app/workspace/ashai-tools/\n"
-            "IMPORTANT: Always find Ash's ID by listing agents first. Ash is the coordinator - report back to Ash."
+            "• REPORT TO ASH: python3 /app/workspace/ashai-tools/report_to_eve.py 'your report' --sender YourName\n"
+            "• MESSAGE AGENT: python3 /app/workspace/ashai-tools/message_agent.py <agent_id> 'message'\n"
+            "• LIST AGENTS: python3 /app/workspace/ashai-tools/message_agent.py --list\n"
+            "• SPAWN AGENT: python3 /app/workspace/ashai-tools/spawn_agent.py <name> [--role <role>]\n\n"
+            "IMPORTANT: When you finish your task, ALWAYS report results back to Ash using report_to_eve.py."
         )
 
         for msg in messages:
