@@ -49,15 +49,15 @@ async def get_settings_endpoint():
     return {
         "default_provider": settings.default_provider,
         "default_model": settings.default_model,
-        "has_anthropic_key": bool(settings.anthropic_api_key),
-        "has_openai_key": bool(settings.openai_api_key),
-        "has_gemini_key": bool(settings.gemini_api_key),
+        "has_anthropic_key": bool(settings.anthropic_api_key.get_secret_value()),
+        "has_openai_key": bool(settings.openai_api_key.get_secret_value()),
+        "has_gemini_key": bool(settings.gemini_api_key.get_secret_value()),
         "ollama_base_url": settings.ollama_base_url,
         "eve_name": settings.eve_name,
         "has_any_key": bool(
-            settings.anthropic_api_key
-            or settings.openai_api_key
-            or settings.gemini_api_key
+            settings.anthropic_api_key.get_secret_value()
+            or settings.openai_api_key.get_secret_value()
+            or settings.gemini_api_key.get_secret_value()
         ),
         "env_file": str(_env_file_path()),
     }

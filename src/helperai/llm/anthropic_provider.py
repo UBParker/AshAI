@@ -6,6 +6,8 @@ import json
 import logging
 from typing import AsyncIterator
 
+import anthropic
+
 from helperai.core.exceptions import LLMError
 from helperai.llm.message_types import Message, StreamChunk, ToolCall, ToolDefinition
 
@@ -16,8 +18,6 @@ class AnthropicProvider:
     """Native Anthropic provider using the official SDK with streaming."""
 
     def __init__(self, api_key: str) -> None:
-        import anthropic
-
         self._name = "anthropic"
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
 
@@ -190,10 +190,10 @@ class AnthropicProvider:
                         else:
                             yield StreamChunk(finish_reason="stop")
 
-        except Exception as e:
-            if "anthropic" in type(e).__module__:
-                raise LLMError(f"Anthropic API error: {e}") from e
-            raise LLMError(f"Error communicating with Anthropic: {e}") from e
+        except anthropic.APIError as e:
+            raise LLMError(f"Anthropic API error: {e}") from e
+        except anthropic.APIConnectionError as e:
+            raise LLMError(f"Error connecting to Anthropic: {e}") from e
 
     async def list_models(self) -> list[str]:
         """Return commonly available Anthropic models."""

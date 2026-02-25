@@ -54,18 +54,11 @@
 
 		try {
 			if (invite.type === 'friend') {
-				// Create a friendship (auto-accepted since invite-based)
-				await createFriendRequest(invite.creator_id, $currentUser.id);
-				// Accept it immediately
-				// The invite creator sent the request, the current user accepts
-				// Actually, let's create it as already accepted
-				await updateFriendshipStatus(
-					// We need the friendship ID — since we just created it, let's fetch it
-					// For simplicity, we'll create the friendship from the creator's side
-					// and the addressee (current user) accepts
-					null, // The createFriendRequest returns the friendship
-					'accepted'
-				).catch(() => {}); // Best effort
+				// Create a friendship and immediately accept it (invite-based)
+				const friendship = await createFriendRequest(invite.creator_id, $currentUser.id);
+				if (friendship?.id) {
+					await updateFriendshipStatus(friendship.id, 'accepted').catch(() => {});
+				}
 
 				success = `You are now friends with ${invite.creator.display_name || invite.creator.email}!`;
 			} else if (invite.type === 'project') {

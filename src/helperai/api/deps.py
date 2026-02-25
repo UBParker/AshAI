@@ -32,25 +32,30 @@ def set_services(
 
 
 def get_agent_manager() -> AgentManager:
-    assert _agent_manager is not None, "AgentManager not initialized"
+    if _agent_manager is None:
+        raise RuntimeError("AgentManager not initialized")
     return _agent_manager
 
 
 def get_event_bus() -> EventBus:
-    assert _event_bus is not None, "EventBus not initialized"
+    if _event_bus is None:
+        raise RuntimeError("EventBus not initialized")
     return _event_bus
 
 
 def get_llm_registry() -> LLMRegistry:
-    assert _llm_registry is not None, "LLMRegistry not initialized"
+    if _llm_registry is None:
+        raise RuntimeError("LLMRegistry not initialized")
     return _llm_registry
 
 
 def get_tool_registry() -> ToolRegistry:
-    assert _tool_registry is not None, "ToolRegistry not initialized"
+    if _tool_registry is None:
+        raise RuntimeError("ToolRegistry not initialized")
     return _tool_registry
 
 
 def get_approval_manager() -> ApprovalManager:
-    assert _approval_manager is not None, "ApprovalManager not initialized"
+    if _approval_manager is None:
+        raise RuntimeError("ApprovalManager not initialized")
     return _approval_manager

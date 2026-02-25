@@ -1,13 +1,15 @@
 <script>
 	import MessageBubble from './MessageBubble.svelte';
 	import { messages, isStreaming, addUserMessage, addAssistantChunk, finalizeAssistant, addToolCall, updateToolResult } from '$lib/stores/chat.js';
-	import { chatStream } from '$lib/api/client.js';
+	import { chatStream, cancelAgent } from '$lib/api/client.js';
 	import { currentProject } from '$lib/stores/projects.js';
 	import { currentUser } from '$lib/auth.js';
+	import { onMount } from 'svelte';
 
 	let { agentId = null } = $props();
 	let inputText = $state('');
 	let messagesEl = $state(null);
+	let currentStreamAbortController = null;
 
 	function scrollToBottom() {
 		if (messagesEl) {
@@ -34,8 +36,12 @@
 		inputText = '';
 		addUserMessage(text, senderName);
 		isStreaming.set(true);
+		let wasQueued = false;
 
 		try {
+			// Store abort controller for potential cancellation
+			currentStreamAbortController = new AbortController();
+
 			await chatStream(text, agentId, (event) => {
 				if (event.type === 'content') {
 					addAssistantChunk(event.text);
@@ -44,17 +50,29 @@
 				} else if (event.type === 'tool_result') {
 					updateToolResult(event.name, event.result);
 				} else if (event.type === 'queued') {
-					addAssistantChunk(`Ash is responding to another team member. Your message is queued (position ${event.position})...`);
+					// Mark as queued but keep streaming state so user can cancel
+					wasQueued = true;
+					addAssistantChunk(`Ash is responding to another team member. Your message is queued (position ${event.position})...\n\n`);
+				} else if (event.type === 'cancelled') {
+					addAssistantChunk('\n[Response cancelled]');
 					finalizeAssistant();
+					wasQueued = false;  // Cancelled, so not queued anymore
 				} else if (event.type === 'done') {
 					finalizeAssistant();
+					wasQueued = false;  // Completed, so not queued anymore
 				}
 			}, senderName);
 		} catch (e) {
 			addAssistantChunk(`\n[Error: ${e.message}]`);
 			finalizeAssistant();
+			wasQueued = false;
 		} finally {
-			isStreaming.set(false);
+			// Only set isStreaming to false if not queued
+			// If queued, keep it true so user can cancel
+			if (!wasQueued) {
+				isStreaming.set(false);
+			}
+			currentStreamAbortController = null;
 		}
 	}
 
@@ -64,6 +82,40 @@
 			handleSend();
 		}
 	}
+
+	async function handleCancel() {
+		if (!$isStreaming || !agentId) return;
+
+		try {
+			// Cancel the agent operation
+			await cancelAgent(agentId);
+
+			// Abort the stream if possible
+			if (currentStreamAbortController) {
+				currentStreamAbortController.abort();
+			}
+
+			// Reset streaming state and add cancelled message
+			isStreaming.set(false);
+			addAssistantChunk('\n[Response cancelled by user]');
+			finalizeAssistant();
+		} catch (e) {
+			console.error('Failed to cancel:', e);
+		}
+	}
+
+	// Global ESC key handler
+	onMount(() => {
+		function handleGlobalKeydown(e) {
+			if (e.key === 'Escape' && $isStreaming) {
+				e.preventDefault();
+				handleCancel();
+			}
+		}
+
+		document.addEventListener('keydown', handleGlobalKeydown);
+		return () => document.removeEventListener('keydown', handleGlobalKeydown);
+	});
 </script>
 
 <div class="chat-panel">
@@ -87,12 +139,20 @@
 			rows="1"
 			disabled={$isStreaming}
 		></textarea>
-		<button class="send-btn" onclick={handleSend} disabled={$isStreaming || !inputText.trim()}>
-			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<line x1="22" y1="2" x2="11" y2="13"/>
-				<polygon points="22 2 15 22 11 13 2 9 22 2"/>
-			</svg>
-		</button>
+		{#if $isStreaming}
+			<button class="cancel-btn" onclick={handleCancel} title="Cancel (ESC)">
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<rect x="4" y="4" width="16" height="16" rx="2"/>
+				</svg>
+			</button>
+		{:else}
+			<button class="send-btn" onclick={handleSend} disabled={!inputText.trim()}>
+				<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<line x1="22" y1="2" x2="11" y2="13"/>
+					<polygon points="22 2 15 22 11 13 2 9 22 2"/>
+				</svg>
+			</button>
+		{/if}
 	</div>
 </div>
 
@@ -159,5 +219,19 @@
 	.send-btn:disabled {
 		opacity: 0.4;
 		cursor: not-allowed;
+	}
+	.cancel-btn {
+		width: 44px;
+		height: 44px;
+		border-radius: 12px;
+		background: var(--error);
+		color: white;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.cancel-btn:hover {
+		background: var(--error-hover);
 	}
 </style>

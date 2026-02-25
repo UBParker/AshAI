@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -25,11 +25,22 @@ class Settings(BaseSettings):
 
     # Builtin provider URLs / keys (used to auto-seed provider_configs on first run)
     ollama_base_url: str = "http://localhost:11434"
-    openai_api_key: str = ""
+    openai_api_key: SecretStr = SecretStr("")
     openai_base_url: str = "https://api.openai.com/v1"
-    anthropic_api_key: str = ""
+    anthropic_api_key: SecretStr = SecretStr("")
     anthropic_base_url: str = "https://api.anthropic.com/v1"
-    gemini_api_key: str = ""
+    gemini_api_key: SecretStr = SecretStr("")
+    
+    # Claude Code Desktop (uses subscription, NO API COSTS!)
+    claude_code_enabled: bool = True
+    claude_code_headless: bool = True
+    claude_code_container_url: str = "http://claude-agent:8000"
+
+    # Claude Web Automation (legacy, prefer Claude Code)
+    claude_web_email: str = ""
+    claude_web_password: SecretStr = SecretStr("")
+    claude_web_headless: bool = True
+    claude_web_timeout: int = 30000
 
     # Eve
     eve_name: str = "Ash"

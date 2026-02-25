@@ -50,6 +50,9 @@ gateway = [
     "supabase>=2.0",
     "websockets>=13.0",
 ]
+web-automation = [
+    "playwright>=1.48.0",
+]
 
 [project.scripts]
 helperai = "helperai.__main__:main"

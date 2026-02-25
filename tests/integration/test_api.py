@@ -36,6 +36,7 @@ async def client():
         default_model="test-model",
         ollama_base_url="",
         eve_model="test-model",
+        eve_name="Eve",
         plugins_dir="__nonexistent__",
     )
     cfg._settings = settings

@@ -11,6 +11,7 @@
 	let providerName = $state('');
 	let modelName = $state('');
 	let selectedTools = $state([]);
+	let initialMessage = $state('');
 
 	let providers = $state([]);
 	let models = $state([]);
@@ -67,14 +68,29 @@
 		loading = true;
 		error = '';
 		try {
-			await createAgent({
+			const agentData = {
 				name: name.trim(),
 				role: role.trim(),
 				goal: goal.trim(),
 				provider_name: providerName,
 				model_name: modelName,
 				tool_names: selectedTools
-			});
+			};
+
+			// Create the agent
+			const agent = await createAgent(agentData);
+
+			// If initial message provided, send it to start the agent
+			if (initialMessage.trim() && agent.id) {
+				try {
+					// Import sendMessage dynamically to avoid circular dependency
+					const { sendMessage } = await import('$lib/api/client.js');
+					await sendMessage(agent.id, initialMessage.trim());
+				} catch (e) {
+					console.error('Failed to send initial message:', e);
+				}
+			}
+
 			await refreshAgents();
 			onClose();
 			// Reset form
@@ -82,6 +98,7 @@
 			role = '';
 			goal = '';
 			selectedTools = [];
+			initialMessage = '';
 		} catch (e) {
 			error = e.message;
 		} finally {
@@ -122,6 +139,19 @@
 				<input id="agent-goal" type="text" bind:value={goal} placeholder="Help with Python development" />
 			</div>
 
+			<div class="field">
+				<label for="initial-message">
+					Initial Message <span class="optional">(optional)</span>
+				</label>
+				<textarea
+					id="initial-message"
+					bind:value={initialMessage}
+					placeholder="Start the agent with a specific task, e.g., 'Analyze the code in src/ and identify potential improvements'"
+					rows="3"
+				></textarea>
+				<small class="hint">Provide an initial task to start the agent working immediately after creation</small>
+			</div>
+
 			<div class="row">
 				<div class="field flex-1">
 					<label for="provider">Provider</label>
@@ -146,19 +176,21 @@
 				<label>Tools</label>
 				<div class="tool-grid">
 					{#each tools as tool}
-						<label class="tool-checkbox">
-							<input
-								type="checkbox"
-								checked={selectedTools.includes(tool.name)}
-								onchange={() => toggleTool(tool.name)}
-							/>
+						<button
+							type="button"
+							class="tool-checkbox {selectedTools.includes(tool.name) ? 'selected' : ''}"
+							onclick={() => toggleTool(tool.name)}
+						>
+							<span class="tool-checkbox-icon">
+								{selectedTools.includes(tool.name) ? '✓' : ''}
+							</span>
 							<span class="tool-label">
 								{tool.name}
 								{#if tool.requires_approval}
 									<span class="approval-badge" title="Requires approval">!</span>
 								{/if}
 							</span>
-						</label>
+						</button>
 					{/each}
 				</div>
 			</div>
@@ -240,6 +272,17 @@
 	.field input:focus, .field textarea:focus, .field select:focus {
 		border-color: var(--accent);
 	}
+	.optional {
+		color: var(--text-muted);
+		font-weight: 400;
+		font-size: 11px;
+	}
+	.hint {
+		display: block;
+		margin-top: 4px;
+		font-size: 11px;
+		color: var(--text-muted);
+	}
 	.row {
 		display: flex;
 		gap: 12px;
@@ -258,11 +301,39 @@
 		gap: 6px;
 		font-size: 13px;
 		cursor: pointer;
-		padding: 4px;
-		border-radius: 4px;
+		padding: 8px 10px;
+		border-radius: 6px;
+		background: var(--bg-tertiary);
+		border: 2px solid var(--border);
+		transition: all 0.2s;
+		text-align: left;
+		width: 100%;
+		color: var(--text-primary);
 	}
 	.tool-checkbox:hover {
 		background: var(--bg-hover);
+		border-color: var(--accent);
+	}
+	.tool-checkbox.selected {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: white;
+	}
+	.tool-checkbox.selected .approval-badge {
+		background: white;
+		color: var(--warning);
+	}
+	.tool-checkbox-icon {
+		width: 16px;
+		height: 16px;
+		border: 2px solid currentColor;
+		border-radius: 3px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 12px;
+		font-weight: bold;
+		flex-shrink: 0;
 	}
 	.tool-label {
 		display: flex;

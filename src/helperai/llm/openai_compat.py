@@ -157,7 +157,7 @@ class OpenAICompatProvider:
             data = resp.json()
             models = data.get("data", [])
             return sorted(m.get("id", "") for m in models if m.get("id"))
-        except Exception:
+        except (httpx.HTTPError, KeyError, ValueError):
             logger.warning("Failed to list models for provider %s", self._name)
             return []
 

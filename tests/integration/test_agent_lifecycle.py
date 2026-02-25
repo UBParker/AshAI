@@ -53,6 +53,7 @@ async def setup():
         default_model="test-model",
         ollama_base_url="",
         eve_model="test-model",
+        eve_name="Eve",
     )
     cfg._settings = settings
 

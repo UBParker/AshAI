@@ -1,0 +1,250 @@
+{
+  "profile_date": "2026-02-25",
+  "project": "AshAI (helperai)",
+  "version": "0.1.0",
+
+  "gateway_startup": {
+    "summary": "Gateway startup is lightweight — module-level imports (httpx, uvicorn, FastAPI) then synchronous class/dict initialization. No I/O at import time.",
+    "concerns": [
+      {
+        "id": "GW-1",
+        "severity": "medium",
+        "title": "Linear port scan on spawn",
+        "detail": "_find_free_port() iterates PORT_RANGE_START..PORT_RANGE_END (10001-10100). With many instances, this is O(n) per spawn. Not a problem at <50 instances but scales poorly.",
+        "file": "src/helperai/gateway.py",
+        "lines": "59-63"
+      },
+      {
+        "id": "GW-2",
+        "severity": "medium",
+        "title": "Blocking subprocess.Popen in async context",
+        "detail": "spawn_instance() calls subprocess.Popen synchronously inside an async path (called from async create_session). Popen itself is fast but stdout/stderr PIPE buffers can fill and block if not drained.",
+        "file": "src/helperai/gateway.py",
+        "lines": "88-93"
+      },
+      {
+        "id": "GW-3",
+        "severity": "low",
+        "title": "Health poll creates new httpx.AsyncClient per iteration",
+        "detail": "_wait_for_healthy() creates a new AsyncClient on each of up to 30 iterations. Connection pool reuse would reduce TCP overhead.",
+        "file": "src/helperai/gateway.py",
+        "lines": "130-145"
+      },
+      {
+        "id": "GW-4",
+        "severity": "info",
+        "title": "Supabase client lazy-loaded (good)",
+        "detail": "_get_supabase() uses lazy singleton pattern — no import/init cost until first auth call.",
+        "file": "src/helperai/gateway.py",
+        "lines": "150-161"
+      }
+    ]
+  },
+
+  "llm_provider_loading": {
+    "summary": "LLM providers are registered during app lifespan startup in create_app(). Each provider is conditionally imported and instantiated based on settings/env vars. This is sequential but each is guarded by try/except so failures are isolated.",
+    "concerns": [
+      {
+        "id": "LLM-1",
+        "severity": "medium",
+        "title": "Sequential provider registration blocks startup",
+        "detail": "7 provider types are registered sequentially. Most are just class instantiation (fast), but ClaudeDockerProvider and ClaudeWebProvider may do I/O (Docker ping, browser launch). Startup could be 2-5s if Docker/Playwright are slow.",
+        "file": "src/helperai/api/app.py",
+        "lines": "40-157"
+      },
+      {
+        "id": "LLM-2",
+        "severity": "low",
+        "title": "LLMRegistry is simple dict — O(1) lookups",
+        "detail": "Registry uses dict[str, LLMProvider]. No performance concern for get/register/list operations.",
+        "file": "src/helperai/llm/registry.py",
+        "lines": "1-38"
+      }
+    ]
+  },
+
+  "api_endpoint_latency": {
+    "summary": "Most API routes are thin wrappers around AgentManager which hits SQLAlchemy async sessions. Latency is dominated by DB queries, not route logic.",
+    "endpoints": {
+      "GET /api/agents": {
+        "estimated_latency": "5-20ms",
+        "bottleneck": "Single SELECT query, serialization loop",
+        "concern": null
+      },
+      "POST /api/agents": {
+        "estimated_latency": "20-50ms",
+        "bottleneck": "list_agents() to find Ash parent + INSERT + start_agent() (SELECT + provider lookup)",
+        "concern": "AGT-1: list_agents() called just to find Ash's ID on every create. Should cache eve_id/ash_id."
+      },
+      "POST /api/chat": {
+        "estimated_latency": "SSE streaming — first byte depends on LLM provider (100ms-5s)",
+        "bottleneck": "LLM inference latency",
+        "concern": null
+      },
+      "POST /api/agents/{id}/message": {
+        "estimated_latency": "SSE streaming + possible auto-start (additional 20-50ms)",
+        "bottleneck": "Auto-start agent if not in memory, then LLM streaming",
+        "concern": "AGT-2: Auto-start on first message means cold-start latency for agents not in memory."
+      },
+      "GET /api/settings": {
+        "estimated_latency": "1-5ms",
+        "bottleneck": "File read of .env + Settings object access",
+        "concern": null
+      },
+      "PUT /api/settings": {
+        "estimated_latency": "1-5ms",
+        "bottleneck": "File read + write of .env",
+        "concern": null
+      },
+      "GET /api/providers": {
+        "estimated_latency": "<1ms",
+        "bottleneck": "In-memory dict iteration",
+        "concern": null
+      },
+      "GET /api/providers/{name}/models": {
+        "estimated_latency": "50ms-2s",
+        "bottleneck": "provider.list_models() — may hit external API (Ollama, OpenAI)",
+        "concern": "PROV-1: No caching of model lists. Repeated calls hit upstream API each time."
+      },
+      "DELETE /api/agents/{id}": {
+        "estimated_latency": "10-30ms",
+        "bottleneck": "Status transition + DB update + event emit",
+        "concern": null
+      }
+    }
+  },
+
+  "agent_memory_patterns": {
+    "summary": "Agents are held in-memory in AgentManager._agents dict. Each ConversationalAgent holds full message history in self._messages list. No eviction or pagination.",
+    "concerns": [
+      {
+        "id": "MEM-1",
+        "severity": "high",
+        "title": "Unbounded message history in memory",
+        "detail": "ConversationalAgent._messages grows without limit. A long conversation (1000+ messages with tool calls containing large outputs) could consume 100MB+ per agent. No truncation, windowing, or summary mechanism exists.",
+        "file": "src/helperai/agents/agent.py",
+        "lines": "37, 47-50"
+      },
+      {
+        "id": "MEM-2",
+        "severity": "medium",
+        "title": "Agents never evicted from memory",
+        "detail": "AgentManager._agents dict only removes agents on explicit destroy_agent(). Idle agents remain in memory indefinitely. With many agents, memory grows proportionally.",
+        "file": "src/helperai/agents/manager.py",
+        "lines": "47, 552-557"
+      },
+      {
+        "id": "MEM-3",
+        "severity": "medium",
+        "title": "Message queues and processor tasks never cleaned up",
+        "detail": "_message_queues and _queue_processors dicts grow as agents receive messages but entries are never removed, even after agent destruction.",
+        "file": "src/helperai/agents/manager.py",
+        "lines": "49-51"
+      },
+      {
+        "id": "MEM-4",
+        "severity": "low",
+        "title": "Full message reload on agent start",
+        "detail": "start_agent() loads ALL messages from DB into memory. For agents with long histories this is an O(n) memory and time cost at start.",
+        "file": "src/helperai/agents/manager.py",
+        "lines": "264-267"
+      },
+      {
+        "id": "MEM-5",
+        "severity": "low",
+        "title": "Knowledge entries loaded into Eve's system prompt",
+        "detail": "All knowledge entries are concatenated into Eve's system prompt. If knowledge base grows large, this inflates every LLM call's token count.",
+        "file": "src/helperai/agents/manager.py",
+        "lines": "96-103"
+      }
+    ]
+  },
+
+  "websocket_throughput": {
+    "summary": "WebSocket handler uses asyncio.Queue per connection with on_all listener. Every event from EventBus is delivered to every connected client — no filtering by agent_id or event type.",
+    "concerns": [
+      {
+        "id": "WS-1",
+        "severity": "high",
+        "title": "All events broadcast to all WebSocket clients",
+        "detail": "event_bus.on_all(listener) means every event (stream chunks, status changes, etc.) goes to every connected client. With N agents streaming simultaneously and M clients, this is O(N*M) messages. Clients receive events for agents they don't care about.",
+        "file": "src/helperai/api/routes/ws.py",
+        "lines": "23-26"
+      },
+      {
+        "id": "WS-2",
+        "severity": "medium",
+        "title": "No backpressure on WebSocket queue",
+        "detail": "asyncio.Queue has no maxsize set. If a slow client can't keep up, the queue grows unbounded, consuming memory. Should use Queue(maxsize=N) with overflow policy.",
+        "file": "src/helperai/api/routes/ws.py",
+        "lines": "21"
+      },
+      {
+        "id": "WS-3",
+        "severity": "medium",
+        "title": "Gateway WS proxy creates full duplex relay per connection",
+        "detail": "Gateway's proxy_websocket creates two asyncio tasks per connection (client_to_backend, backend_to_client). With many concurrent users, task count = 2*users. No connection pooling.",
+        "file": "src/helperai/gateway.py",
+        "lines": "427-451"
+      },
+      {
+        "id": "WS-4",
+        "severity": "low",
+        "title": "JSON serialization per event per client",
+        "detail": "Each event is json.dumps'd once per send. For the same event going to multiple clients, it could be serialized once and reused.",
+        "file": "src/helperai/api/routes/ws.py",
+        "lines": "31-39"
+      }
+    ]
+  },
+
+  "gateway_proxy": {
+    "summary": "The gateway reverse proxy creates a new httpx.AsyncClient per request with a 300s timeout. SSE streaming uses async iteration.",
+    "concerns": [
+      {
+        "id": "PROXY-1",
+        "severity": "high",
+        "title": "New httpx.AsyncClient per request — no connection pooling",
+        "detail": "proxy_api() creates 'async with httpx.AsyncClient(timeout=300)' for every single request. This means no TCP connection reuse between requests to the same backend instance. Should use a shared client or per-instance client pool.",
+        "file": "src/helperai/gateway.py",
+        "lines": "348"
+      },
+      {
+        "id": "PROXY-2",
+        "severity": "low",
+        "title": "SSE streaming path detection is string-based",
+        "detail": "is_streaming checks path == 'chat' or path.endswith('/message'). If new streaming endpoints are added, this must be updated manually.",
+        "file": "src/helperai/gateway.py",
+        "lines": "346"
+      }
+    ]
+  },
+
+  "priority_recommendations": [
+    {
+      "rank": 1,
+      "ids": ["PROXY-1"],
+      "action": "Use a shared httpx.AsyncClient (or per-instance client) in gateway proxy instead of creating one per request. Estimated improvement: 50-100ms reduction per proxied request from connection reuse."
+    },
+    {
+      "rank": 2,
+      "ids": ["MEM-1", "MEM-4"],
+      "action": "Implement message windowing — keep only last N messages in memory, with full history in DB. Add a context window budget (e.g., 100k tokens) with automatic summarization of older messages."
+    },
+    {
+      "rank": 3,
+      "ids": ["WS-1", "WS-2"],
+      "action": "Add agent_id subscription filtering to WebSocket connections. Clients should subscribe to specific agents. Add Queue(maxsize=1000) with drop-oldest overflow."
+    },
+    {
+      "rank": 4,
+      "ids": ["MEM-2", "MEM-3"],
+      "action": "Add idle agent eviction from memory (e.g., after 10 minutes idle). Clean up _message_queues/_queue_processors on agent destroy."
+    },
+    {
+      "rank": 5,
+      "ids": ["GW-3", "PROV-1"],
+      "action": "Cache model lists (TTL 60s) and reuse httpx.AsyncClient for health checks."
+    }
+  ]
+}

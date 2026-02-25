@@ -46,21 +46,114 @@ async def lifespan(app: FastAPI):
         )
         llm_registry.register(ollama, is_default=(settings.default_provider == "ollama"))
 
-    if settings.openai_api_key:
+    if settings.openai_api_key.get_secret_value():
         openai = OpenAICompatProvider(
             name="openai",
             base_url=settings.openai_base_url,
-            api_key=settings.openai_api_key,
+            api_key=settings.openai_api_key.get_secret_value(),
         )
         llm_registry.register(openai, is_default=(settings.default_provider == "openai"))
 
-    if settings.anthropic_api_key:
+    if settings.anthropic_api_key.get_secret_value():
         from helperai.llm.anthropic_provider import AnthropicProvider
 
-        anthropic = AnthropicProvider(api_key=settings.anthropic_api_key)
+        anthropic = AnthropicProvider(api_key=settings.anthropic_api_key.get_secret_value())
         llm_registry.register(
             anthropic, is_default=(settings.default_provider == "anthropic")
         )
+
+    # Register Claude Docker provider if enabled (uses subscription via Docker containers!)
+    if settings.claude_code_enabled or settings.default_provider == "claude_docker":
+        try:
+            from helperai.llm.claude_docker_provider import ClaudeDockerProvider
+
+            claude_docker = ClaudeDockerProvider(
+                image_name="ashai-claude-cli",
+                max_containers=10
+            )
+            llm_registry.register(
+                claude_docker, is_default=(settings.default_provider == "claude_docker")
+            )
+            logger.info("Claude Docker provider registered - ALL agents use Docker containers with your subscription!")
+            logger.info("Cost: $20/month total for UNLIMITED agents (saving you $580+/month!)")
+        except ImportError as e:
+            logger.warning(
+                f"Claude Docker provider requested but docker library not installed: {e}. "
+                "Install with: pip install docker"
+            )
+        except Exception as e:
+            logger.error(f"Failed to register Claude Docker provider: {e}")
+
+    # Register Claude Host provider if enabled (uses host's CLI directly)
+    if settings.default_provider == "claude_host":
+        try:
+            from helperai.llm.claude_host_provider import ClaudeHostProvider
+
+            claude_host = ClaudeHostProvider()
+            llm_registry.register(claude_host, is_default=True)
+            logger.info("Claude Host provider registered - using host's Claude CLI with your subscription!")
+        except Exception as e:
+            logger.error(f"Failed to register Claude Host provider: {e}")
+
+    # Register Claude Web Automation provider if credentials are provided
+    if settings.claude_web_email and settings.claude_web_password.get_secret_value():
+        try:
+            from helperai.llm.claude_web_provider import ClaudeWebProvider
+
+            claude_web = ClaudeWebProvider(
+                email=settings.claude_web_email,
+                password=settings.claude_web_password.get_secret_value(),
+                headless=settings.claude_web_headless,
+                timeout=settings.claude_web_timeout,
+            )
+            llm_registry.register(
+                claude_web, is_default=(settings.default_provider == "claude_web")
+            )
+            logger.info("Claude Web Automation provider registered")
+        except ImportError:
+            logger.warning(
+                "Claude Web Automation provider requested but playwright not installed. "
+                "Install with: pip install 'helperai[web-automation]'"
+            )
+        except Exception as e:
+            logger.error(f"Failed to register Claude Web Automation provider: {e}")
+
+    # Register Claude Terminal provider if enabled (uses Claude CLI in Docker container)
+    if settings.default_provider == "claude_terminal":
+        try:
+            from helperai.llm.claude_terminal_provider import ClaudeTerminalProvider
+
+            claude_terminal = ClaudeTerminalProvider(
+                api_url="http://localhost:8081",
+                check_status=True
+            )
+            llm_registry.register(
+                claude_terminal, is_default=True
+            )
+            logger.info("Claude Terminal provider registered - using Claude CLI with your $20/month subscription!")
+            logger.info("Saving you $560+/month vs API costs!")
+        except Exception as e:
+            logger.error(f"Failed to register Claude Terminal provider: {e}")
+
+    # Register Claude Session provider if enabled (uses browser cookies)
+    if settings.default_provider == "claude_session" or os.path.exists("claude-cookies.json"):
+        try:
+            from helperai.llm.claude_session_provider import ClaudeSessionProvider
+
+            # Check for custom API URL from environment
+            session_api_url = os.getenv("CLAUDE_SESSION_API_URL", "http://localhost:8080")
+
+            claude_session = ClaudeSessionProvider(
+                api_url=session_api_url,
+                cookies_file="claude-cookies.json"
+            )
+            llm_registry.register(
+                claude_session, is_default=(settings.default_provider == "claude_session")
+            )
+            logger.info("Claude Session provider registered - using browser cookies with your subscription!")
+            logger.info(f"Cost: $20/month total (saving you $560+/month vs API!)")
+        except Exception as e:
+            logger.error(f"Failed to register Claude Session provider: {e}")
 
     logger.info("LLM providers registered: %s", llm_registry.list_providers())
 
@@ -103,6 +196,21 @@ async def lifespan(app: FastAPI):
     eve = await agent_manager.init_eve()
     logger.info("Eve initialized: id=%s, model=%s", eve.id, eve.model_name)
 
+    # --- Signal File Monitor ---
+    # Start monitoring for signal files from Claude CLI
+    signal_monitor = None
+    try:
+        from helperai.signal_monitor import SignalFileMonitor
+
+        signal_monitor = SignalFileMonitor(
+            watch_dir=".",  # Monitor current directory for .ashai_tool_signal.json files
+            agent_manager=agent_manager
+        )
+        signal_monitor.start()
+        logger.info("Signal file monitor started - watching for Claude CLI tool signals")
+    except ImportError as e:
+        logger.warning(f"Signal file monitor not available: {e}. Install with: pip install watchdog aiofiles")
+
     # --- Wire up deps ---
     from helperai.api.deps import set_services
 
@@ -111,6 +219,20 @@ async def lifespan(app: FastAPI):
     yield
 
     # --- Shutdown ---
+    # Stop signal file monitor
+    if signal_monitor:
+        signal_monitor.stop()
+        logger.info("Signal file monitor stopped")
+
+    # Clean up Claude Web provider if it exists
+    if "claude_web" in llm_registry.list_providers():
+        try:
+            claude_web_provider = llm_registry.get("claude_web")
+            if hasattr(claude_web_provider, "close"):
+                await claude_web_provider.close()
+        except Exception as e:
+            logger.error(f"Error closing Claude Web provider: {e}")
+
     await close_db()
     logger.info("Shutdown complete")
 
