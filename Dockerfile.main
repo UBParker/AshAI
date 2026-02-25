@@ -1,0 +1,74 @@
+# AshAI Gateway — serves gateway API + frontend SPA.
+# Spawns per-user/project backend subprocesses with their own SQLite DBs.
+#
+# Build:  docker build -f Dockerfile.main -t ashai-gateway .
+
+# --- Stage 1: Build frontend ---
+FROM node:20-slim AS frontend-build
+
+WORKDIR /app/src/frontend
+
+COPY src/frontend/package.json src/frontend/package-lock.json* ./
+RUN npm ci --ignore-scripts 2>/dev/null || npm install
+
+COPY src/frontend/ ./
+
+# Frontend env vars baked in at build time — pass via --build-arg (NO defaults for secrets)
+ARG VITE_SUPABASE_URL=""
+ARG VITE_SUPABASE_ANON_KEY=""
+ARG VITE_GATEWAY_URL=""
+ENV VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+ENV VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+ENV VITE_GATEWAY_URL=${VITE_GATEWAY_URL}
+
+RUN npm run build
+
+# --- Stage 2: Python runtime (extends base) ---
+FROM python:3.11-slim AS runtime
+
+ARG APP_USER=ashai
+ARG APP_HOME=/home/${APP_USER}
+
+# Common system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd -r ${APP_USER} && \
+    useradd -r -g ${APP_USER} -G audio,video -m -d ${APP_HOME} ${APP_USER}
+
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy project files needed for install
+COPY pyproject.toml README.md ./
+COPY src/helperai/ ./src/helperai/
+
+# Install the package (gateway extras only, no Playwright)
+RUN pip install --no-cache-dir ".[gateway]"
+
+# Copy built frontend from stage 1
+COPY --from=frontend-build /app/src/frontend/build /app/static
+
+# Create data directories
+RUN mkdir -p /data/users /data/projects && \
+    chown -R ${APP_USER}:${APP_USER} /data /app
+
+# The gateway runs on port 9000, backend instances use 10001-10100
+EXPOSE 9000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:9000/gateway/health || exit 1
+
+# Environment defaults
+ENV GATEWAY_PORT=9000 \
+    GATEWAY_DATA_DIR=/data
+
+# Run as non-root
+USER ${APP_USER}
+
+CMD ["python", "-m", "helperai.gateway"]

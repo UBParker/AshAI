@@ -1,0 +1,143 @@
+services:
+  # Master orchestrator — AshAI gateway + frontend SPA
+  ashai-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.main
+      args:
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-}
+        - VITE_GATEWAY_URL=${VITE_GATEWAY_URL:-}
+    ports:
+      - "9000:9000"
+    environment:
+      - HELPERAI_DEFAULT_PROVIDER=claude_code
+      - HELPERAI_CLAUDE_AGENTS_ENABLED=true
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock  # To spawn agent containers
+    networks:
+      - claude-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/gateway/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  # Claude Code Agent 1 - Architect
+  claude-agent-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.vnc-claude
+      args:
+        - VNC_PASSWORD=${VNC_PASSWORD:-}
+    environment:
+      - DISPLAY=:99
+      - AGENT_NAME=Architect
+      - AGENT_ROLE=System design and architecture
+    volumes:
+      - claude-config-1:/home/claude/.config/Claude
+    networks:
+      - claude-network
+    ports:
+      - "5901:5900"  # VNC for debugging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health 2>/dev/null || curl -f http://localhost:8081/health 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+
+  # Claude Code Agent 2 - Developer
+  claude-agent-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.vnc-claude
+      args:
+        - VNC_PASSWORD=${VNC_PASSWORD:-}
+    environment:
+      - DISPLAY=:99
+      - AGENT_NAME=Developer
+      - AGENT_ROLE=Implementation and coding
+    volumes:
+      - claude-config-2:/home/claude/.config/Claude
+    networks:
+      - claude-network
+    ports:
+      - "5902:5900"  # VNC for debugging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health 2>/dev/null || curl -f http://localhost:8081/health 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+
+  # Claude Code Agent 3 - Reviewer
+  claude-agent-3:
+    build:
+      context: .
+      dockerfile: Dockerfile.vnc-claude
+      args:
+        - VNC_PASSWORD=${VNC_PASSWORD:-}
+    environment:
+      - DISPLAY=:99
+      - AGENT_NAME=Reviewer
+      - AGENT_ROLE=Code review and testing
+    volumes:
+      - claude-config-3:/home/claude/.config/Claude
+    networks:
+      - claude-network
+    ports:
+      - "5903:5900"  # VNC for debugging
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health 2>/dev/null || curl -f http://localhost:8081/health 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+
+volumes:
+  claude-config-1:
+  claude-config-2:
+  claude-config-3:
+
+networks:
+  claude-network:
+    driver: bridge
