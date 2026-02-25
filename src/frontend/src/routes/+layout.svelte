@@ -3,6 +3,7 @@
 	import Header from '$lib/components/Header.svelte';
 	import AgentSidebar from '$lib/components/AgentSidebar.svelte';
 	import ApprovalDialog from '$lib/components/ApprovalDialog.svelte';
+	import ErrorBoundary from '$lib/components/ErrorBoundary.svelte';
 	import { refreshAgents, handleAgentEvent } from '$lib/stores/agents.js';
 	import { handleApprovalEvent } from '$lib/stores/approvals.js';
 	import { connectWebSocket, disconnectWebSocket, isTauri, setBackendUrl, waitForBackend, getSettings } from '$lib/api/client.js';
@@ -27,6 +28,10 @@
 	function wsEventHandler(event) {
 		handleAgentEvent(event);
 		handleApprovalEvent(event);
+		// Dispatch custom event for message updates
+		if (event.type === 'agent.message') {
+			window.dispatchEvent(new CustomEvent('ws:message', { detail: event }));
+		}
 	}
 
 	onMount(async () => {
@@ -190,7 +195,9 @@
 				{/if}
 			</AgentSidebar>
 			<main class="main">
-				{@render children()}
+				<ErrorBoundary>
+					{@render children()}
+				</ErrorBoundary>
 			</main>
 		</div>
 	</div>

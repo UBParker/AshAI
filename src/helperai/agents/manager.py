@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import AsyncIterator
 
 from sqlalchemy import select
+from helperai.db.engine import get_session_factory
 
 from helperai.agents.agent import ConversationalAgent
 from helperai.agents.eve import EVE_SYSTEM_PROMPT, EVE_TOOL_NAMES
@@ -46,6 +48,8 @@ class AgentManager:
         self._eve_id: str | None = None
         self._message_queues: dict[str, asyncio.Queue] = {}
         self._queue_processors: dict[str, asyncio.Task] = {}
+        self._cancellation_flags: dict[str, bool] = {}
+        self._message_lock = threading.Lock()  # Prevent TOCTOU race in message delivery
 
     @property
     def eve_id(self) -> str | None:
@@ -209,6 +213,19 @@ class AgentManager:
         )
         return agent_model
 
+    def is_agent_started(self, agent_id: str) -> bool:
+        """Check if an agent is started in memory."""
+        return agent_id in self._agents
+
+    def remove_agent_from_memory(self, agent_id: str) -> None:
+        """Remove an agent from the in-memory registry (e.g. before restart)."""
+        self._agents.pop(agent_id, None)
+
+    async def restart_agent(self, agent_id: str) -> None:
+        """Remove an agent from memory and re-start it (e.g. after config change)."""
+        self.remove_agent_from_memory(agent_id)
+        await self.start_agent(agent_id)
+
     async def start_agent(self, agent_id: str) -> None:
         """Initialize in-memory agent and set status to IDLE."""
         session_factory = get_session_factory()
@@ -220,10 +237,13 @@ class AgentManager:
             if agent_model is None:
                 raise AgentNotFoundError(agent_id)
 
-            validate_transition(AgentStatus(agent_model.status), AgentStatus.IDLE)
-            agent_model.status = AgentStatus.IDLE.value
-            await session.commit()
-            await session.refresh(agent_model)
+            # Only transition to IDLE if not already IDLE
+            current_status = AgentStatus(agent_model.status)
+            if current_status != AgentStatus.IDLE:
+                validate_transition(current_status, AgentStatus.IDLE)
+                agent_model.status = AgentStatus.IDLE.value
+                await session.commit()
+                await session.refresh(agent_model)
 
         provider = self._llm.get(agent_model.provider_name)
         tools_dict: dict = {}
@@ -268,21 +288,43 @@ class AgentManager:
         if agent is None:
             raise AgentNotFoundError(agent_id)
 
-        # Check if agent is currently busy
-        current_status = AgentStatus(agent.model.status)
-        if current_status == AgentStatus.RUNNING:
-            # Queue the message for later processing
-            if agent_id not in self._message_queues:
-                self._message_queues[agent_id] = asyncio.Queue()
+        # Use lock to prevent TOCTOU race condition
+        with self._message_lock:
+            # Check if agent is currently busy - check the database, not in-memory model
+            # The in-memory model might be stale
+            session_factory = get_session_factory()
+            async with session_factory() as session:
+                result = await session.execute(
+                    select(AgentModel).where(AgentModel.id == agent_id)
+                )
+                agent_db = result.scalar_one_or_none()
+                if agent_db:
+                    current_status = AgentStatus(agent_db.status)
+                    # Update in-memory model to match DB
+                    agent.model.status = agent_db.status
+                else:
+                    current_status = AgentStatus(agent.model.status)
 
-            queue = self._message_queues[agent_id]
-            await queue.put({"content": content, "sender_name": sender_name})
+            if current_status == AgentStatus.RUNNING:
+                # Queue the message for later processing
+                if agent_id not in self._message_queues:
+                    self._message_queues[agent_id] = asyncio.Queue()
 
-            # Save the user message to DB immediately so it appears in history
-            await self._save_message(agent_id, "user", content, sender_name=sender_name)
+                queue = self._message_queues[agent_id]
+                await queue.put({"content": content, "sender_name": sender_name})
 
-            yield {"type": "queued", "position": queue.qsize()}
-            return
+                # Save the user message to DB immediately so it appears in history
+                await self._save_message(agent_id, "user", content, sender_name=sender_name)
+
+                yield {"type": "queued", "position": queue.qsize()}
+                return
+
+            # Mark that we're processing (but don't modify in-memory yet)
+            should_update_status = True
+
+        # Update status in database after releasing lock (to avoid blocking)
+        if should_update_status:
+            await self._set_status(agent_id, AgentStatus.RUNNING)
 
         # Process message directly
         async for event in self._process_message(agent_id, content, sender_name):
@@ -299,8 +341,18 @@ class AgentManager:
         if agent is None:
             raise AgentNotFoundError(agent_id)
 
-        # Update status to RUNNING
-        await self._set_status(agent_id, AgentStatus.RUNNING)
+        # Clear any previous cancellation flag
+        self._cancellation_flags[agent_id] = False
+
+        # Status is already set to RUNNING by send_message_stream
+        # Just emit the status change event
+        self._event_bus.emit_nowait(
+            Event(
+                type=EventType.AGENT_STATUS_CHANGED,
+                agent_id=agent_id,
+                data={"status": AgentStatus.RUNNING.value},
+            )
+        )
 
         # Prefix message with sender name for shared projects
         display_content = f"[{sender_name}]: {content}" if sender_name else content
@@ -313,15 +365,30 @@ class AgentManager:
 
         # Stream response
         full_content = ""
+        initial_message_count = len(agent.get_messages())
         try:
             async for event in agent.step_stream():
+                # Check for cancellation
+                if self._cancellation_flags.get(agent_id, False):
+                    yield {"type": "cancelled", "message": "Response cancelled by user"}
+                    await self._set_status(agent_id, AgentStatus.IDLE)
+                    self._cancellation_flags[agent_id] = False
+                    return
+
                 if event["type"] == "content":
                     full_content += event["text"]
                 yield event
 
-            # Save assistant response to DB
-            if full_content:
-                await self._save_message(agent_id, "assistant", full_content)
+            # Save all new messages to DB (assistant message, tool results, etc.)
+            final_messages = agent.get_messages()
+            for msg in final_messages[initial_message_count:]:
+                await self._save_message(
+                    agent_id,
+                    msg.role,
+                    msg.content or "",
+                    tool_calls=msg.tool_calls,
+                    tool_call_id=msg.tool_call_id
+                )
 
             await self._set_status(agent_id, AgentStatus.IDLE)
 
@@ -354,18 +421,39 @@ class AgentManager:
                 agent.add_user_message(display_content)
 
                 full_content = ""
+                initial_message_count = len(agent.get_messages())
                 async for event in agent.step_stream():
                     if event["type"] == "content":
                         full_content += event["text"]
                     # Events are broadcast via EventBus/WebSocket already
 
-                if full_content:
-                    await self._save_message(agent_id, "assistant", full_content)
+                # Save all new messages to DB (assistant message, tool results, etc.)
+                final_messages = agent.get_messages()
+                for msg in final_messages[initial_message_count:]:
+                    await self._save_message(
+                        agent_id,
+                        msg.role,
+                        msg.content or "",
+                        tool_calls=msg.tool_calls,
+                        tool_call_id=msg.tool_call_id
+                    )
 
                 await self._set_status(agent_id, AgentStatus.IDLE)
 
             except Exception as e:
                 logger.exception("Error processing queued message for agent %s", agent_id)
+                # Emit error event so frontend knows the queued message failed
+                self._event_bus.emit_nowait(
+                    Event(
+                        type=EventType.AGENT_MESSAGE,
+                        agent_id=agent_id,
+                        data={
+                            "type": "error",
+                            "error": f"Failed to process queued message: {str(e)}",
+                            "role": "system"
+                        },
+                    )
+                )
                 try:
                     await self._set_status(agent_id, AgentStatus.ERROR)
                 except Exception:
@@ -373,13 +461,32 @@ class AgentManager:
 
     async def inject_message(self, agent_id: str, role: str, content: str) -> None:
         """Inject a message into an agent's thread (e.g., report from sub-agent)."""
-        agent = self._agents.get(agent_id)
-        if agent is None:
-            raise AgentNotFoundError(agent_id)
+        # Use lock to prevent race conditions with message processing
+        with self._message_lock:
+            # Auto-start agent if not already started in memory
+            if not self.is_agent_started(agent_id):
+                await self.start_agent(agent_id)
 
-        agent.add_injected_message(role, content)
+            agent = self._agents.get(agent_id)
+            if agent is None:
+                raise AgentNotFoundError(agent_id)
+
+            # Check if agent is busy - if so, queue the injection
+            current_status = AgentStatus(agent.model.status)
+            if current_status == AgentStatus.RUNNING:
+                # Queue as an injected message for later
+                if agent_id not in self._message_queues:
+                    self._message_queues[agent_id] = asyncio.Queue()
+                queue = self._message_queues[agent_id]
+                await queue.put({"content": content, "sender_name": f"[{role}]", "injected": True})
+                logger.info(f"Queued injected message for busy agent {agent_id}")
+                return
+
+            # Safe to inject directly
+            agent.add_injected_message(role, content)
+
+        # Save to DB and emit event (outside the lock)
         await self._save_message(agent_id, role, content)
-
         self._event_bus.emit_nowait(
             Event(
                 type=EventType.AGENT_MESSAGE,
@@ -413,6 +520,34 @@ class AgentManager:
                 .order_by(ThreadMessage.sequence)
             )
             return list(result.scalars().all())
+
+    async def cancel_agent(self, agent_id: str) -> bool:
+        """Cancel the current operation for an agent.
+
+        Returns True if cancellation was initiated, False if agent wasn't running.
+        """
+        agent = self._agents.get(agent_id)
+        if agent is None:
+            raise AgentNotFoundError(agent_id)
+
+        current_status = AgentStatus(agent.model.status)
+        if current_status == AgentStatus.RUNNING:
+            # Set cancellation flag
+            self._cancellation_flags[agent_id] = True
+
+            # Clear the message queue if it exists
+            if agent_id in self._message_queues:
+                queue = self._message_queues[agent_id]
+                while not queue.empty():
+                    try:
+                        queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+
+            # Force reset status to idle immediately
+            await self._set_status(agent_id, AgentStatus.IDLE)
+            return True
+        return False
 
     async def destroy_agent(self, agent_id: str) -> None:
         if agent_id == self._eve_id:
@@ -465,8 +600,17 @@ class AgentManager:
     ) -> None:
         session_factory = get_session_factory()
         async with session_factory() as session:
-            # Get next sequence number
-            from sqlalchemy import func
+            # Use a transaction to prevent race conditions
+            # For SQLite, this provides some isolation
+            from sqlalchemy import func, text
+
+            # Try to use IMMEDIATE transaction for SQLite to prevent races
+            # This will serialize access to the sequence number
+            try:
+                await session.execute(text("BEGIN IMMEDIATE"))
+            except Exception:
+                # Not SQLite or doesn't support IMMEDIATE, continue with normal transaction
+                pass
 
             result = await session.execute(
                 select(func.coalesce(func.max(ThreadMessage.sequence), 0)).where(
@@ -485,6 +629,10 @@ class AgentManager:
                 sequence=next_seq,
             )
             if tool_calls:
-                msg.tool_calls = tool_calls
+                # Convert ToolCall objects to dict for JSON serialization
+                msg.tool_calls = [
+                    {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
+                    for tc in tool_calls
+                ]
             session.add(msg)
             await session.commit()
