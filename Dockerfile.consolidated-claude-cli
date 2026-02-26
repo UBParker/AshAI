@@ -28,7 +28,8 @@ RUN apk add --no-cache \
     htop \
     openssh-server \
     git \
-    sudo
+    sudo \
+    build-base
 
 # Configure sshd
 RUN mkdir -p /var/run/sshd \
@@ -36,8 +37,8 @@ RUN mkdir -p /var/run/sshd \
     && sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config \
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
-# Install Claude CLI
-RUN npm install -g @anthropic-ai/claude-code
+# Install Claude CLI and Gemini CLI
+RUN npm install -g @anthropic-ai/claude-code @google/gemini-cli
 
 # Create non-root user with sudo access
 RUN adduser -D -s /bin/bash claude \
@@ -51,8 +52,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir aiohttp requests \
     && apk del py3-pip py3-virtualenv
 
-# Copy terminal controller (API server for claude_terminal provider)
-COPY --chown=claude:claude claude-terminal-controller.py /home/claude/
+# Copy terminal controller (API server for cli_agent provider)
+COPY --chown=claude:claude cli-terminal-controller.py /home/claude/
 
 # Copy multi-provider API proxy (routes /anthropic, /openai, /gemini, /ollama, /custom/*)
 COPY --chown=claude:claude multi-provider-proxy.py /home/claude/
@@ -102,8 +103,8 @@ fi
 
 case "$1" in
     server|"")
-        echo "Starting Claude Terminal Controller on port 8081..."
-        exec python3 /home/claude/claude-terminal-controller.py
+        echo "Starting CLI Agent Controller on port 8081..."
+        exec python3 /home/claude/cli-terminal-controller.py
         ;;
     proxy-only)
         echo "Running proxy only (no terminal controller)..."

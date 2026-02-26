@@ -173,25 +173,26 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to register Claude Web Automation provider: {e}")
 
-    # Register Claude Terminal provider if it's default or eve_provider
-    _need_terminal = (
-        settings.default_provider == "claude_terminal"
-        or settings.eve_provider == "claude_terminal"
+    # Register CLI Agent provider (wraps Claude CLI, Gemini CLI, etc.)
+    _need_cli_agent = (
+        settings.default_provider in ("cli_agent", "claude_terminal")
+        or settings.eve_provider in ("cli_agent", "claude_terminal")
     )
-    if _need_terminal:
+    if _need_cli_agent:
         try:
-            from helperai.llm.claude_terminal_provider import ClaudeTerminalProvider
+            from helperai.llm.cli_agent_provider import CLIAgentProvider
 
-            claude_terminal = ClaudeTerminalProvider(
+            cli_agent = CLIAgentProvider(
                 api_url="http://localhost:8081",
-                check_status=True
+                check_status=True,
             )
             llm_registry.register(
-                claude_terminal, is_default=(settings.default_provider == "claude_terminal")
+                cli_agent,
+                is_default=(settings.default_provider in ("cli_agent", "claude_terminal")),
             )
-            logger.info("Claude Terminal provider registered - using Claude CLI with your $20/month subscription!")
+            logger.info("CLI Agent provider registered — routes to installed CLIs (claude, gemini, …)")
         except Exception as e:
-            logger.error(f"Failed to register Claude Terminal provider: {e}")
+            logger.error(f"Failed to register CLI Agent provider: {e}")
 
     # Register Claude Session provider if enabled (uses browser cookies)
     if settings.default_provider == "claude_session" or os.path.exists("claude-cookies.json"):
