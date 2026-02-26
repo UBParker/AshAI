@@ -7,6 +7,27 @@
 	let current = $derived($pendingApprovals[0] || null);
 	let queueLength = $derived($pendingApprovals.length);
 
+	/**
+	 * Parse arguments — may be a JSON string, an object, or something else.
+	 * Returns a list of { key, value } pairs for display.
+	 */
+	function parseArgs(args) {
+		if (!args) return [];
+		let obj = args;
+		if (typeof args === 'string') {
+			try { obj = JSON.parse(args); } catch { return [{ key: null, value: args }]; }
+		}
+		if (typeof obj !== 'object' || obj === null) {
+			return [{ key: null, value: String(obj) }];
+		}
+		return Object.entries(obj).map(([key, value]) => ({
+			key,
+			value: typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+		}));
+	}
+
+	let parsedArgs = $derived(parseArgs(current?.arguments));
+
 	async function handleApprove() {
 		if (!current || loading) return;
 		loading = true;
@@ -45,30 +66,41 @@
 <div class="overlay">
 	<div class="dialog">
 		<div class="header">
-			<h3>Action Approval Required</h3>
+			<div class="header-left">
+				<span class="shield">&#x26A0;</span>
+				<h3>Approval Required</h3>
+			</div>
 			{#if queueLength > 1}
 				<span class="badge">{queueLength} pending</span>
 			{/if}
 		</div>
 
 		<div class="body">
-			<div class="field">
-				<span class="label">Tool</span>
-				<span class="value tool-name">{current.tool_name}</span>
+			<div class="tool-banner">
+				<span class="tool-label">Tool</span>
+				<span class="tool-name">{current.tool_name}</span>
 			</div>
 
-			<div class="field">
-				<span class="label">Arguments</span>
-				<pre class="args">{JSON.stringify(current.arguments, null, 2)}</pre>
-			</div>
+			{#if parsedArgs.length > 0}
+				<div class="args-section">
+					{#each parsedArgs as { key, value }}
+						<div class="arg-row">
+							{#if key}
+								<span class="arg-key">{key}</span>
+							{/if}
+							<pre class="arg-value">{value}</pre>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
 
 		<div class="actions">
 			<button class="btn deny" onclick={handleDeny} disabled={loading}>
-				Deny (Esc)
+				Deny <kbd>Esc</kbd>
 			</button>
 			<button class="btn approve" onclick={handleApprove} disabled={loading}>
-				Approve (Enter)
+				Approve <kbd>Enter</kbd>
 			</button>
 		</div>
 	</div>
@@ -87,23 +119,34 @@
 	}
 	.dialog {
 		background: var(--bg-secondary);
-		border: 1px solid var(--border);
+		border: 1px solid var(--warning);
 		border-radius: 12px;
-		width: 480px;
+		width: 520px;
 		max-width: 90vw;
 		max-height: 80vh;
 		overflow-y: auto;
+		box-shadow: 0 0 30px rgba(255, 152, 0, 0.1);
 	}
 	.header {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		padding: 16px 20px;
+		padding: 14px 20px;
 		border-bottom: 1px solid var(--border);
 	}
+	.header-left {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.shield {
+		font-size: 18px;
+		line-height: 1;
+	}
 	.header h3 {
-		font-size: 16px;
+		font-size: 15px;
 		font-weight: 600;
+		color: var(--text-primary);
 	}
 	.badge {
 		background: var(--warning);
@@ -116,46 +159,79 @@
 	.body {
 		padding: 16px 20px;
 	}
-	.field {
-		margin-bottom: 12px;
+	.tool-banner {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 10px 14px;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		margin-bottom: 14px;
 	}
-	.label {
-		display: block;
-		font-size: 11px;
+	.tool-label {
+		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
 		color: var(--text-muted);
-		margin-bottom: 4px;
+		flex-shrink: 0;
 	}
 	.tool-name {
-		font-size: 16px;
-		font-weight: 600;
+		font-size: 15px;
+		font-weight: 700;
 		color: var(--accent);
+		font-family: 'SF Mono', 'Fira Code', monospace;
 	}
-	.args {
-		background: var(--bg-tertiary);
-		border: 1px solid var(--border);
-		border-radius: 8px;
-		padding: 12px;
-		font-size: 12px;
-		overflow-x: auto;
+	.args-section {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.arg-row {
+		border-left: 3px solid var(--border);
+		padding-left: 12px;
+	}
+	.arg-key {
+		display: block;
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		margin-bottom: 2px;
+	}
+	.arg-value {
+		margin: 0;
+		font-size: 13px;
+		font-family: 'SF Mono', 'Fira Code', monospace;
+		color: var(--text-primary);
 		white-space: pre-wrap;
 		word-break: break-word;
-		max-height: 300px;
+		line-height: 1.5;
+		max-height: 200px;
 		overflow-y: auto;
 	}
 	.actions {
 		display: flex;
-		gap: 8px;
-		padding: 16px 20px;
+		gap: 10px;
+		padding: 14px 20px;
 		border-top: 1px solid var(--border);
 		justify-content: flex-end;
 	}
 	.btn {
-		padding: 8px 20px;
+		padding: 8px 24px;
 		border-radius: 8px;
 		font-weight: 600;
 		font-size: 13px;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.btn kbd {
+		font-size: 10px;
+		padding: 1px 5px;
+		border-radius: 3px;
+		background: rgba(255, 255, 255, 0.15);
+		font-family: inherit;
 	}
 	.btn:disabled {
 		opacity: 0.5;
@@ -169,10 +245,12 @@
 		filter: brightness(1.1);
 	}
 	.deny {
-		background: var(--error);
-		color: #fff;
+		background: var(--bg-tertiary);
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
 	}
 	.deny:hover:not(:disabled) {
-		filter: brightness(1.1);
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 </style>

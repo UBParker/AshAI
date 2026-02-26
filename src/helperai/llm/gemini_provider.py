@@ -57,20 +57,30 @@ class GeminiProvider:
         system_instruction = ""
         contents: list[dict] = []
 
+        # Build a map from tool_call_id → tool name so we can match
+        # functionResponse names to their original functionCall names.
+        tc_id_to_name: dict[str, str] = {}
+        for msg in messages:
+            if msg.role == "assistant" and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    tc_id_to_name[tc.id] = tc.name
+
         for msg in messages:
             if msg.role == "system":
                 system_instruction = msg.content
                 continue
 
             if msg.role == "tool":
-                # Tool results → functionResponse block sent as role=user
+                # Tool results → functionResponse block sent as role=user.
+                # The name MUST match the original functionCall name.
+                fn_name = tc_id_to_name.get(msg.tool_call_id or "", "tool_result")
                 contents.append(
                     {
                         "role": "user",
                         "parts": [
                             {
                                 "functionResponse": {
-                                    "name": "tool_result",
+                                    "name": fn_name,
                                     "response": {"content": msg.content},
                                 }
                             }
@@ -215,10 +225,10 @@ class GeminiProvider:
 
     async def list_models(self) -> list[str]:
         return [
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
             "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
-            "gemini-1.5-pro",
-            "gemini-1.5-flash",
         ]
 
     async def close(self) -> None:

@@ -268,6 +268,11 @@
 		border-radius: 8px;
 		padding: 8px 12px;
 		outline: none;
+		color: var(--text-primary);
+	}
+	.field select option {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
 	}
 	.field input:focus, .field textarea:focus, .field select:focus {
 		border-color: var(--accent);

@@ -51,9 +51,10 @@ CLI_CONFIGS = {
         "possible_paths": [
             "/usr/local/bin/gemini",
         ],
-        "auto_approve_flags": ["--sandbox"],
+        "auto_approve_flags": ["--yolo"],
         "model_flag": "-m",
-        "print_flag": None,  # gemini reads from stdin by default
+        "print_flag": "-p",
+        "prompt_via_flag": True,
     },
 }
 
@@ -119,16 +120,23 @@ class CLIAgentController:
         # Add model selection flag
         cmd += [cfg["model_flag"], model]
 
-        # Claude needs -p (print) for non-interactive mode
+        # Add print/prompt flag for non-interactive mode
+        # Claude: -p is a standalone flag, prompt comes via stdin
+        # Gemini: -p takes the prompt as its argument value
+        stdin_input = None
         if cfg.get("print_flag"):
-            cmd.append(cfg["print_flag"])
+            if cfg.get("prompt_via_flag"):
+                cmd += [cfg["print_flag"], message]
+            else:
+                cmd.append(cfg["print_flag"])
+                stdin_input = message
 
         logger.info("Running: %s  (input length=%d)", " ".join(cmd), len(message))
 
         try:
             result = subprocess.run(
                 cmd,
-                input=message,
+                input=stdin_input,
                 capture_output=True,
                 text=True,
                 timeout=600,

@@ -207,23 +207,14 @@ class CLIAgentProvider:
     # Model listing
     # ------------------------------------------------------------------
 
-    async def list_models(self) -> list[dict]:
-        """Fetch available models from the controller."""
+    async def list_models(self) -> list[str]:
+        """Fetch available model names from the controller."""
         try:
             await self._ensure_session()
             async with self._session.get(f"{self.api_url}/api/models") as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return [
-                        {
-                            "id": m["id"],
-                            "name": f"{m['id']} ({m['cli']} CLI)",
-                            "description": f"Runs via {m['cli']} CLI",
-                            "context_window": 200000,
-                            "max_tokens": 4096,
-                        }
-                        for m in data
-                    ]
+                    return [m["id"] for m in data]
         except Exception as e:
             logger.warning("Could not list models from controller: %s", e)
 

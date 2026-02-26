@@ -26,6 +26,7 @@ env/
 # Environment & secrets
 .env
 .env.local
+.env.docker
 .env.production
 *.pem
 *.key
