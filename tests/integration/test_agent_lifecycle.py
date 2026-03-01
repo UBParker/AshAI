@@ -52,6 +52,7 @@ async def setup():
         default_provider="test",
         default_model="test-model",
         ollama_base_url="",
+        eve_provider="test",  # override env var so tests stay isolated
         eve_model="test-model",
         eve_name="Eve",
     )
@@ -165,3 +166,72 @@ async def test_thread_persistence(setup):
     roles = [m.role for m in thread]
     assert "user" in roles
     assert "assistant" in roles
+
+
+async def test_queued_message_sse_forwarding(setup):
+    """A queued message's response must be streamed back to the HTTP SSE client.
+
+    Scenario:
+    - Agent processes M1 directly (keeping status=RUNNING while streaming).
+    - M2 arrives while M1 is in flight → gets queued with a response_queue.
+    - After M1 finishes, _process_queue() processes M2 and forwards events into
+      the response_queue so the M2 SSE generator can yield them.
+    """
+    import asyncio as _asyncio
+
+    manager, mock_provider, _ = setup
+    eve = await manager.init_eve()
+
+    # Slow M1: yields chunks with a tiny delay so M2 arrives while M1 is running.
+    slow_m1_done = _asyncio.Event()
+
+    async def slow_stream(messages, model, **kwargs):
+        yield StreamChunk(delta_content="M1 ")
+        await _asyncio.sleep(0.05)  # Give M2 time to arrive
+        yield StreamChunk(delta_content="response")
+        yield StreamChunk(finish_reason="stop")
+        slow_m1_done.set()
+
+    mock_provider.stream = slow_stream
+
+    # Collect M1 events in the background.
+    m1_events: list[dict] = []
+
+    async def consume_m1():
+        async for ev in manager.send_message_stream(eve.id, "M1"):
+            m1_events.append(ev)
+
+    m1_task = _asyncio.create_task(consume_m1())
+
+    # Wait briefly so M1 starts and the agent enters RUNNING.
+    await _asyncio.sleep(0.01)
+
+    # Send M2; since the agent is RUNNING it should be queued.
+    m2_events: list[dict] = []
+
+    async def consume_m2():
+        async for ev in manager.send_message_stream(eve.id, "M2"):
+            m2_events.append(ev)
+
+    m2_task = _asyncio.create_task(consume_m2())
+
+    # Wait for both tasks to finish.
+    await _asyncio.wait_for(_asyncio.gather(m1_task, m2_task), timeout=10)
+
+    # M1 should have streamed content normally.
+    assert any(e.get("type") == "content" for e in m1_events), (
+        "M1 should have content events"
+    )
+
+    # M2 should have received a 'queued' event followed by the actual response.
+    types_m2 = [e.get("type") for e in m2_events]
+    assert "queued" in types_m2, "M2 should have been queued"
+    assert "content" in types_m2, (
+        "M2 SSE client must receive the content events after dequeueing"
+    )
+    assert "done" in types_m2, "M2 SSE client must receive the done event"
+
+    # 'queued' must come first, before content.
+    queued_idx = types_m2.index("queued")
+    content_idx = types_m2.index("content")
+    assert queued_idx < content_idx, "'queued' must precede 'content'"

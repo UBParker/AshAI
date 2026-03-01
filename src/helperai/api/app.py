@@ -221,6 +221,13 @@ async def lifespan(app: FastAPI):
     from helperai.tools.builtin.message_agent import MessageAgentTool
     from helperai.tools.builtin.report_to_eve import ReportToEveTool
     from helperai.tools.builtin.spawn_agent import SpawnAgentTool
+    from helperai.tools.builtin.report_progress import (
+        ReportProgressTool,
+        ReportMilestoneTool,
+        ReportStepTool,
+        ReportFindingTool,
+        ReportMetricsTool,
+    )
     from helperai.tools.registry import ToolRegistry
 
     tool_registry = ToolRegistry()
@@ -228,6 +235,13 @@ async def lifespan(app: FastAPI):
     tool_registry.register(ListAgentsTool())
     tool_registry.register(MessageAgentTool())
     tool_registry.register(ReportToEveTool())
+
+    # Progress reporting tools (non-blocking, streaming)
+    tool_registry.register(ReportProgressTool())
+    tool_registry.register(ReportMilestoneTool())
+    tool_registry.register(ReportStepTool())
+    tool_registry.register(ReportFindingTool())
+    tool_registry.register(ReportMetricsTool())
     logger.info("Tools registered: %s", tool_registry.list_tools())
 
     # --- Load plugins ---
@@ -313,6 +327,29 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Rate limiters — created once at startup so state is shared across requests
+    from helperai.api.rate_limiter import SlidingWindowRateLimiter
+    from helperai.api.deps import set_rate_limiters
+
+    if settings.rate_limit_enabled:
+        per_client = SlidingWindowRateLimiter(
+            max_requests=settings.rate_limit_message_rpm, window_seconds=60
+        )
+        global_ = SlidingWindowRateLimiter(
+            max_requests=settings.rate_limit_global_rpm, window_seconds=60
+        )
+        logger.info(
+            "Rate limiting enabled: %d req/min per client, %d req/min global",
+            settings.rate_limit_message_rpm,
+            settings.rate_limit_global_rpm,
+        )
+    else:
+        per_client = None
+        global_ = None
+        logger.info("Rate limiting disabled")
+
+    set_rate_limiters(per_client, global_)
 
     # Routes
     from helperai.api.routes import agents, approvals, chat, knowledge, providers, settings, tools, ws

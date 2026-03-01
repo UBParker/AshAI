@@ -50,6 +50,20 @@ class Settings(BaseSettings):
     eve_provider: str = ""  # empty → use default_provider
     eve_model: str = ""  # empty → use default_model
 
+    # Message queue resilience
+    message_queue_ttl: int = 300          # seconds before a queued message expires
+    message_queue_max_retries: int = 3    # max retry attempts after a processing failure
+    message_queue_retry_backoff: float = 2.0  # base backoff in seconds (doubles each retry)
+    agent_stuck_timeout: int = 300        # seconds in RUNNING before agent is force-reset
+
+    # Rate limiting for message endpoints
+    # Set rate_limit_enabled=false to disable all rate limiting (e.g. in tests or trusted networks).
+    rate_limit_enabled: bool = True
+    # Maximum requests per minute from a single client IP on /api/chat and /api/agents/{id}/message.
+    rate_limit_message_rpm: int = 20
+    # Maximum requests per minute across ALL clients combined on the same endpoints.
+    rate_limit_global_rpm: int = 200
+
     # Plugins directory
     plugins_dir: str = Field(default_factory=lambda: str(Path("plugins")))
 

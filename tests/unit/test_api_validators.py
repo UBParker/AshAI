@@ -41,6 +41,26 @@ class TestMessageRequest:
         req = MessageRequest(message="hi", sender_name="Alice")
         assert req.sender_name == "Alice"
 
+    # -- new sanitization tests ------------------------------------------------
+
+    def test_null_byte_in_message_rejected(self):
+        with pytest.raises(ValidationError, match="null bytes"):
+            MessageRequest(message="hello\x00world")
+
+    def test_null_byte_in_sender_name_rejected(self):
+        with pytest.raises(ValidationError, match="null bytes"):
+            MessageRequest(message="hi", sender_name="Alice\x00")
+
+    def test_unicode_nfc_normalization_applied(self):
+        # é composed (U+00E9) vs decomposed (e + U+0301 combining accent)
+        decomposed = "e\u0301"  # two code points
+        req = MessageRequest(message=decomposed)
+        assert req.message == "\u00e9"  # one code point (NFC form)
+
+    def test_multiline_message_accepted(self):
+        req = MessageRequest(message="line1\nline2\nline3")
+        assert "line1" in req.message
+
 
 class TestCreateAgentRequest:
     def test_valid_minimal(self):

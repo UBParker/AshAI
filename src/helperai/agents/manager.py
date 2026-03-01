@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import AsyncIterator
 
 from sqlalchemy import select
@@ -26,6 +28,18 @@ from helperai.tools.protocol import ToolContext
 from helperai.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class QueuedMessage:
+    """A message waiting in an agent's queue, with TTL and retry metadata."""
+
+    content: str
+    sender_name: str | None
+    queued_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    retry_count: int = 0
+    injected: bool = False  # True when this was an injected (non-user) message
+    response_queue: asyncio.Queue | None = field(default=None)  # SSE client receives events here
 
 
 class AgentManager:
@@ -50,6 +64,7 @@ class AgentManager:
         self._queue_processors: dict[str, asyncio.Task] = {}
         self._cancellation_flags: dict[str, bool] = {}
         self._message_lock = threading.Lock()  # Prevent TOCTOU race in message delivery
+        self._running_since: dict[str, datetime] = {}  # when each agent last entered RUNNING
 
     @property
     def eve_id(self) -> str | None:
@@ -311,6 +326,9 @@ class AgentManager:
         if agent is None:
             raise AgentNotFoundError(agent_id)
 
+        should_update_status = False
+        should_force_reset = False
+
         # Use lock to prevent TOCTOU race condition
         with self._message_lock:
             # Check if agent is currently busy - check the database, not in-memory model
@@ -329,23 +347,62 @@ class AgentManager:
                     current_status = AgentStatus(agent.model.status)
 
             if current_status == AgentStatus.RUNNING:
-                # Queue the message for later processing
-                if agent_id not in self._message_queues:
-                    self._message_queues[agent_id] = asyncio.Queue()
+                # Check whether the agent is stuck (running too long with no progress)
+                running_since = self._running_since.get(agent_id)
+                now = datetime.now(timezone.utc)
+                stuck_timeout = self._settings.agent_stuck_timeout
 
-                queue = self._message_queues[agent_id]
-                await queue.put({"content": content, "sender_name": sender_name})
+                if running_since and (now - running_since).total_seconds() > stuck_timeout:
+                    # Agent has been RUNNING longer than the configured limit.
+                    # It is likely stuck due to a dropped connection or unhandled error.
+                    # Force-reset so this new message can be processed directly.
+                    elapsed = (now - running_since).total_seconds()
+                    logger.warning(
+                        "Agent %s stuck in RUNNING for %.0fs (limit=%ds), forcing reset",
+                        agent_id, elapsed, stuck_timeout,
+                    )
+                    self._running_since.pop(agent_id, None)
+                    should_force_reset = True
+                    should_update_status = True
+                else:
+                    # Normal path: agent is legitimately busy, queue the message.
+                    if agent_id not in self._message_queues:
+                        self._message_queues[agent_id] = asyncio.Queue()
 
-                # Save the user message to DB immediately so it appears in history
-                await self._save_message(agent_id, "user", content, sender_name=sender_name)
+                    queue = self._message_queues[agent_id]
+                    # Create a per-request queue so this SSE client can receive the
+                    # response once the agent finishes its current task.
+                    response_queue: asyncio.Queue = asyncio.Queue()
+                    msg = QueuedMessage(
+                        content=content,
+                        sender_name=sender_name,
+                        response_queue=response_queue,
+                    )
+                    await queue.put(msg)
 
-                yield {"type": "queued", "position": queue.qsize()}
-                return
+                    # Save the user message to DB immediately so it appears in history
+                    await self._save_message(agent_id, "user", content, sender_name=sender_name)
 
-            # Mark that we're processing (but don't modify in-memory yet)
-            should_update_status = True
+                    yield {"type": "queued", "position": queue.qsize()}
 
-        # Update status in database after releasing lock (to avoid blocking)
+                    # Keep the SSE connection open and stream the response when ready.
+                    # _process_queue() puts events here and sends None as a sentinel.
+                    while True:
+                        event = await response_queue.get()
+                        if event is None:
+                            break
+                        yield event
+                    return
+            else:
+                # Agent is free — mark that we'll transition it to RUNNING
+                should_update_status = True
+
+        # Transition the agent's status now that the lock is released.
+        if should_force_reset:
+            # RUNNING → IDLE clears the stuck state; we'll go RUNNING again below.
+            logger.info("Force-resetting stuck agent %s: RUNNING → IDLE → RUNNING", agent_id)
+            await self._set_status(agent_id, AgentStatus.IDLE)
+
         if should_update_status:
             await self._set_status(agent_id, AgentStatus.RUNNING)
 
@@ -421,36 +478,77 @@ class AgentManager:
             yield {"type": "error", "error": str(e)}
 
     async def _process_queue(self, agent_id: str) -> None:
-        """Process any queued messages for an agent."""
+        """Process any queued messages for an agent.
+
+        Enforces per-message TTL (expired messages are discarded to dead-letter),
+        and retries failed messages with exponential backoff up to
+        ``settings.message_queue_max_retries`` times.
+        """
         queue = self._message_queues.get(agent_id)
         if queue is None or queue.empty():
             return
 
+        ttl = self._settings.message_queue_ttl
+        max_retries = self._settings.message_queue_max_retries
+        retry_backoff = self._settings.message_queue_retry_backoff
+
         while not queue.empty():
-            item = await queue.get()
+            item: QueuedMessage = await queue.get()
+
+            # ── TTL check ────────────────────────────────────────────────────
+            now = datetime.now(timezone.utc)
+            age = (now - item.queued_at).total_seconds()
+            if age > ttl:
+                logger.warning(
+                    "Dropping expired queued message for agent %s "
+                    "(age=%.0fs, ttl=%ds, retry=%d)",
+                    agent_id, age, ttl, item.retry_count,
+                )
+                error_payload = {
+                    "type": "error",
+                    "error": (
+                        f"Queued message expired after {age:.0f}s "
+                        f"(TTL={ttl}s)"
+                    ),
+                }
+                if item.response_queue is not None:
+                    await item.response_queue.put(error_payload)
+                    await item.response_queue.put(None)  # sentinel: stream closed
+                self._event_bus.emit_nowait(
+                    Event(
+                        type=EventType.AGENT_MESSAGE,
+                        agent_id=agent_id,
+                        data={**error_payload, "role": "system"},
+                    )
+                )
+                continue
+
+            # ── Process the message ──────────────────────────────────────────
             try:
-                # Process queued message (the user message was already saved when queued)
                 agent = self._agents.get(agent_id)
                 if agent is None:
                     break
 
                 await self._set_status(agent_id, AgentStatus.RUNNING)
 
-                display_content = (
-                    f"[{item['sender_name']}]: {item['content']}"
-                    if item.get("sender_name")
-                    else item["content"]
-                )
+                # Injected messages (e.g. sub-agent reports) don't carry a
+                # user-visible prefix; regular queued messages do.
+                if item.sender_name and not item.injected:
+                    display_content = f"[{item.sender_name}]: {item.content}"
+                else:
+                    display_content = item.content
+
                 agent.add_user_message(display_content)
 
-                full_content = ""
                 initial_message_count = len(agent.get_messages())
                 async for event in agent.step_stream():
-                    if event["type"] == "content":
-                        full_content += event["text"]
-                    # Events are broadcast via EventBus/WebSocket already
+                    # Forward every event to the waiting SSE client (if any).
+                    # EventBus events (AGENT_STREAM_CHUNK etc.) are also emitted
+                    # inside step_stream() for WebSocket subscribers.
+                    if item.response_queue is not None:
+                        await item.response_queue.put(event)
 
-                # Save all new messages to DB (assistant message, tool results, etc.)
+                # Persist new messages (assistant reply, tool results, etc.)
                 final_messages = agent.get_messages()
                 for msg in final_messages[initial_message_count:]:
                     await self._save_message(
@@ -458,25 +556,65 @@ class AgentManager:
                         msg.role,
                         msg.content or "",
                         tool_calls=msg.tool_calls,
-                        tool_call_id=msg.tool_call_id
+                        tool_call_id=msg.tool_call_id,
                     )
 
                 await self._set_status(agent_id, AgentStatus.IDLE)
 
+                # Signal the SSE client that the stream is complete.
+                if item.response_queue is not None:
+                    await item.response_queue.put(None)  # sentinel
+
             except Exception as e:
-                logger.exception("Error processing queued message for agent %s", agent_id)
-                # Emit error event so frontend knows the queued message failed
-                self._event_bus.emit_nowait(
-                    Event(
-                        type=EventType.AGENT_MESSAGE,
-                        agent_id=agent_id,
-                        data={
-                            "type": "error",
-                            "error": f"Failed to process queued message: {str(e)}",
-                            "role": "system"
-                        },
-                    )
+                logger.exception(
+                    "Error processing queued message for agent %s "
+                    "(attempt %d of %d)",
+                    agent_id, item.retry_count + 1, max_retries + 1,
                 )
+
+                if item.retry_count < max_retries:
+                    # Exponential backoff: 2s, 4s, 8s, …
+                    backoff = retry_backoff * (2 ** item.retry_count)
+                    logger.info(
+                        "Retrying queued message for agent %s in %.1fs "
+                        "(attempt %d/%d)",
+                        agent_id, backoff, item.retry_count + 1, max_retries,
+                    )
+                    await asyncio.sleep(backoff)
+                    retried = QueuedMessage(
+                        content=item.content,
+                        sender_name=item.sender_name,
+                        queued_at=item.queued_at,   # preserve original timestamp for TTL
+                        retry_count=item.retry_count + 1,
+                        injected=item.injected,
+                        response_queue=item.response_queue,  # preserve SSE client's queue
+                    )
+                    await queue.put(retried)
+                else:
+                    # Dead-letter: max retries exhausted
+                    logger.error(
+                        "Queued message for agent %s exhausted %d retries, "
+                        "dropping to dead-letter",
+                        agent_id, max_retries,
+                    )
+                    error_payload = {
+                        "type": "error",
+                        "error": (
+                            f"Message failed after {max_retries + 1} "
+                            f"attempts: {e}"
+                        ),
+                    }
+                    if item.response_queue is not None:
+                        await item.response_queue.put(error_payload)
+                        await item.response_queue.put(None)  # sentinel
+                    self._event_bus.emit_nowait(
+                        Event(
+                            type=EventType.AGENT_MESSAGE,
+                            agent_id=agent_id,
+                            data={**error_payload, "role": "system"},
+                        )
+                    )
+
                 try:
                     await self._set_status(agent_id, AgentStatus.ERROR)
                 except Exception:
@@ -501,7 +639,9 @@ class AgentManager:
                 if agent_id not in self._message_queues:
                     self._message_queues[agent_id] = asyncio.Queue()
                 queue = self._message_queues[agent_id]
-                await queue.put({"content": content, "sender_name": f"[{role}]", "injected": True})
+                await queue.put(
+                    QueuedMessage(content=content, sender_name=f"[{role}]", injected=True)
+                )
                 logger.info(f"Queued injected message for busy agent {agent_id}")
                 return
 
@@ -599,6 +739,12 @@ class AgentManager:
             validate_transition(current, status)
             agent_model.status = status.value
             await session.commit()
+
+        # Track when each agent enters / exits RUNNING so stuck-agent detection works
+        if status == AgentStatus.RUNNING:
+            self._running_since[agent_id] = datetime.now(timezone.utc)
+        else:
+            self._running_since.pop(agent_id, None)
 
         # Update in-memory model too
         if agent_id in self._agents:

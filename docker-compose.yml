@@ -28,6 +28,7 @@ services:
     env_file:
       - .env.docker
     ports:
+      - "8000:8000"   # Backend API
       - "8081:8081"   # Claude Terminal Controller
       - "8082:8082"   # Multi-Provider API Proxy
       - "2222:22"     # SSH (optional)
@@ -46,6 +47,8 @@ services:
     volumes:
       # Workspace — shared with host for tool access and signal files
       - ./:/app/workspace:rw
+      # Database persistence
+      - ashai-data:/app/data
       # Optional: mount Claude auth for subscription-based usage
       # - ~/.claude-auth.json:/tmp/claude-auth.json:ro
       # Optional: SSH keys for git access inside container
@@ -59,6 +62,7 @@ services:
 
     healthcheck:
       test: >
+        curl -f http://localhost:8000/api/health 2>/dev/null ||
         curl -f http://localhost:8081/api/status 2>/dev/null ||
         curl -f http://localhost:8082/health 2>/dev/null ||
         exit 1
@@ -110,3 +114,7 @@ networks:
   default:
     name: ashai-network
     driver: bridge
+
+volumes:
+  ashai-data:
+    driver: local

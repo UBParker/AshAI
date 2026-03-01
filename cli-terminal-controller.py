@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 # Model → CLI mapping
 # ---------------------------------------------------------------------------
 MODEL_TO_CLI = {
-    # Claude models
-    "claude-sonnet-4":   "claude",
-    "claude-opus-4":     "claude",
-    "claude-haiku-3.5":  "claude",
+    # Claude models - using CLI's expected names
+    "sonnet":   "claude",
+    "opus":     "claude",
+    "haiku":    "claude",
     # Gemini models
     "gemini-2.5-pro":    "gemini",
     "gemini-2.5-flash":  "gemini",

@@ -49,6 +49,43 @@ class TestChatRequestValidation:
         with pytest.raises(ValidationError):
             ChatRequest(message="hi", sender_name="x" * 101)
 
+    def test_null_byte_in_message_rejected(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="null bytes"):
+            ChatRequest(message="hello\x00")
+
+    def test_null_byte_in_sender_name_rejected(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="null bytes"):
+            ChatRequest(message="hi", sender_name="\x00bad")
+
+    def test_agent_id_valid_hex(self):
+        req = ChatRequest(message="hi", agent_id="a1b2c3d4e5f6")
+        assert req.agent_id == "a1b2c3d4e5f6"
+
+    def test_agent_id_valid_with_hyphen(self):
+        req = ChatRequest(message="hi", agent_id="custom-agent")
+        assert req.agent_id == "custom-agent"
+
+    def test_agent_id_invalid_special_chars(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            ChatRequest(message="hi", agent_id="agent with spaces!")
+
+    def test_agent_id_too_long(self):
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError):
+            ChatRequest(message="hi", agent_id="a" * 65)
+
+    def test_agent_id_none_allowed(self):
+        req = ChatRequest(message="hi", agent_id=None)
+        assert req.agent_id is None
+
+    def test_unicode_nfc_normalization_in_message(self):
+        decomposed = "e\u0301"  # e + combining accent
+        req = ChatRequest(message=decomposed)
+        assert req.message == "\u00e9"  # NFC composed form
+
 
 class TestChatEndpoint:
     def test_eve_not_initialized(self):

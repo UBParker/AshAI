@@ -49,8 +49,8 @@ RUN adduser -D -s /bin/bash claude \
 # --- Python virtual environment ---
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir aiohttp requests \
-    && apk del py3-pip py3-virtualenv
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir aiohttp requests
 
 # Copy terminal controller (API server for cli_agent provider)
 COPY --chown=claude:claude cli-terminal-controller.py /home/claude/
@@ -63,12 +63,26 @@ COPY --chown=claude:claude claude-tool-bridge.py /app/
 COPY --chown=claude:claude report_to_eve.py /app/
 COPY --chown=claude:claude ashai-tools/ /app/ashai-tools/
 
+# Copy backend API code
+COPY --chown=claude:claude pyproject.toml /app/
+COPY --chown=claude:claude README.md /app/
+COPY --chown=claude:claude src/ /app/src/
+COPY --chown=claude:claude plugins/ /app/plugins/
+
+# Install backend API dependencies (as root for system packages)
+USER root
+RUN cd /app && pip install --no-cache-dir -e . && \
+    pip install --no-cache-dir docker && \
+    apk del py3-pip py3-virtualenv
+USER claude
+
 # Setup directories (/app/workspace is expected to be a host mount)
 RUN mkdir -p /home/claude/.config/@anthropic-ai/claude-code \
     && mkdir -p /home/claude/.cache \
     && mkdir -p /home/claude/.ssh \
     && mkdir -p /tmp/.X11-unix \
     && mkdir -p /app/workspace \
+    && mkdir -p /app/data \
     && chown -R claude:claude /home/claude /app \
     && chmod 1777 /tmp/.X11-unix
 
@@ -101,14 +115,43 @@ else
     echo "WARNING: No provider API keys set — proxy not started (set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or OLLAMA_BASE_URL)"
 fi
 
+# Start backend API
+echo "Starting Backend API on port 8000..."
+cd /app
+export HELPERAI_DATABASE_URL=sqlite+aiosqlite:////app/data/helperai.db
+export HELPERAI_PLUGINS_DIR=/app/plugins
+export HELPERAI_HOST=0.0.0.0
+export HELPERAI_PORT=8000
+export HELPERAI_ANTHROPIC_BASE_URL=http://localhost:8082
+export HELPERAI_ANTHROPIC_API_KEY=proxy
+export HELPERAI_DEFAULT_PROVIDER=cli_agent
+export HELPERAI_DEFAULT_MODEL=sonnet
+export HELPERAI_EVE_PROVIDER=anthropic
+export HELPERAI_EVE_MODEL=claude-opus-4-6
+# Disable Ollama since we're using Claude CLI
+export HELPERAI_OLLAMA_BASE_URL=""
+python3 -m helperai &
+BACKEND_PID=$!
+
+# Wait for backend to be ready
+echo "Waiting for backend API to be ready..."
+for i in $(seq 1 30); do
+    if curl -f http://localhost:8000/api/health >/dev/null 2>&1; then
+        echo "Backend API is ready!"
+        break
+    fi
+    sleep 1
+done
+
 case "$1" in
     server|"")
         echo "Starting CLI Agent Controller on port 8081..."
+        # Run controller in foreground, backend continues in background
         exec python3 /home/claude/cli-terminal-controller.py
         ;;
     proxy-only)
         echo "Running proxy only (no terminal controller)..."
-        wait
+        wait $BACKEND_PID
         ;;
     *)
         exec "$@"
@@ -120,7 +163,7 @@ RUN chmod +x /home/claude/entrypoint.sh
 USER claude
 WORKDIR /home/claude
 
-EXPOSE 8081 8082 22
+EXPOSE 8000 8081 8082 22
 
 # Health check: terminal controller primary, proxy secondary
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

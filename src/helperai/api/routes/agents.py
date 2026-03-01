@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import json
-
 import re
+import unicodedata
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
 from sse_starlette.sse import EventSourceResponse
 
 from helperai.agents.manager import AgentManager
-from helperai.api.deps import get_agent_manager
+from helperai.api.deps import check_message_rate_limit, get_agent_manager
 from helperai.core.exceptions import AgentNotFoundError
 
 router = APIRouter()
@@ -24,6 +24,10 @@ class MessageRequest(BaseModel):
     @field_validator("message")
     @classmethod
     def validate_message(cls, v: str) -> str:
+        if "\x00" in v:
+            raise ValueError("Message must not contain null bytes")
+        # Normalize unicode to NFC form to prevent homoglyph / encoding attacks
+        v = unicodedata.normalize("NFC", v)
         if not v or not v.strip():
             raise ValueError("Message must not be empty")
         if len(v) > 100_000:
@@ -33,7 +37,12 @@ class MessageRequest(BaseModel):
     @field_validator("sender_name")
     @classmethod
     def validate_sender_name(cls, v: str | None) -> str | None:
-        if v is not None and len(v) > 100:
+        if v is None:
+            return v
+        if "\x00" in v:
+            raise ValueError("Sender name must not contain null bytes")
+        v = unicodedata.normalize("NFC", v)
+        if len(v) > 100:
             raise ValueError("Sender name must be 100 characters or fewer")
         return v
 
@@ -298,6 +307,7 @@ async def message_agent(
     agent_id: str,
     req: MessageRequest,
     manager: AgentManager = Depends(get_agent_manager),
+    _: None = Depends(check_message_rate_limit),
 ):
     try:
         # Auto-start agent if not already started in memory
