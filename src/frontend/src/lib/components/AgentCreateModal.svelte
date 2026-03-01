@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { listProviders, listModels, listTools, createAgent } from '$lib/api/client.js';
+	import { listProviders, listModels, listTools, listTemplates, createAgent } from '$lib/api/client.js';
 	import { refreshAgents } from '$lib/stores/agents.js';
 
 	let { open = false, onClose = () => {} } = $props();
@@ -13,6 +13,7 @@
 	let selectedTools = $state([]);
 	let initialMessage = $state('');
 
+	let templates = $state([]);
 	let providers = $state([]);
 	let models = $state([]);
 	let tools = $state([]);
@@ -21,12 +22,14 @@
 
 	onMount(async () => {
 		try {
-			const [providerData, toolData] = await Promise.all([
+			const [providerData, toolData, templateData] = await Promise.all([
 				listProviders(),
-				listTools()
+				listTools(),
+				listTemplates()
 			]);
 			providers = providerData;
 			tools = toolData;
+			templates = templateData;
 			if (providers.length > 0) {
 				const defaultP = providers.find(p => p.is_default) || providers[0];
 				providerName = defaultP.name;
@@ -47,6 +50,25 @@
 			}
 		} catch {
 			models = [];
+		}
+	}
+
+	async function handleTemplateSelect(e) {
+		const templateId = e.target.value;
+		if (!templateId) return;
+		const template = templates.find(t => t.id === templateId);
+		if (!template) return;
+
+		role = template.role || '';
+		goal = template.goal || '';
+		selectedTools = template.tool_names || [];
+
+		if (template.provider_name) {
+			providerName = template.provider_name;
+			await loadModels(providerName);
+			if (template.model_name) {
+				modelName = template.model_name;
+			}
 		}
 	}
 
@@ -124,6 +146,18 @@
 		</div>
 
 		<form class="modal-body" onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+			{#if templates.length > 0}
+				<div class="field">
+					<label for="template-select">Load from Template</label>
+					<select id="template-select" onchange={handleTemplateSelect}>
+						<option value="">-- Select a template --</option>
+						{#each templates as t}
+							<option value={t.id}>{t.display_name}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+
 			<div class="field">
 				<label for="agent-name">Name</label>
 				<input id="agent-name" type="text" bind:value={name} placeholder="e.g. CodeBot" required />

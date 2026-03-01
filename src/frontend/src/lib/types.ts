@@ -120,6 +120,20 @@ export interface Project {
 	created_at?: string;
 }
 
+// --- Agent Templates ---
+
+export interface AgentTemplate {
+	id: string;
+	display_name: string;
+	description: string;
+	role: string;
+	goal: string;
+	provider_name: string;
+	model_name: string;
+	temperature: number;
+	tool_names: string[];
+}
+
 // --- Providers ---
 
 export interface Provider {

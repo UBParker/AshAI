@@ -315,7 +315,7 @@ def create_app() -> FastAPI:
     )
 
     # Routes
-    from helperai.api.routes import agents, approvals, chat, knowledge, providers, settings, tools, ws
+    from helperai.api.routes import agents, approvals, chat, knowledge, providers, settings, templates, tools, ws
 
     app.include_router(chat.router)
     app.include_router(agents.router)
@@ -325,6 +325,7 @@ def create_app() -> FastAPI:
     app.include_router(tools.router)
     app.include_router(settings.router)
     app.include_router(knowledge.router)
+    app.include_router(templates.router)
 
     @app.get("/api/health")
     async def health():
