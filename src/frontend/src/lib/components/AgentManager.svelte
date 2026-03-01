@@ -9,7 +9,10 @@
 		destroyAgent,
 		listTools,
 		listProviders,
-		listModels
+		listModels,
+		saveAgentAsTemplate,
+		exportTemplates,
+		importTemplates
 	} from '$lib/api/client.js';
 	import AgentCreateModal from './AgentCreateModal.svelte';
 
@@ -36,6 +39,8 @@
 	});
 	let saving = $state(false);
 	let deleteConfirm = $state(false);
+	let showTemplatePrompt = $state(false);
+	let templateName = $state('');
 
 	onMount(async () => {
 		await refreshAgents();
@@ -187,6 +192,33 @@
 		}
 	}
 
+	let importInput;
+
+	async function handleImportTemplates(e) {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		try {
+			const result = await importTemplates(file);
+			alert(`Imported ${result.imported} template(s), skipped ${result.skipped} duplicate(s).`);
+		} catch (err) {
+			alert('Import failed: ' + err.message);
+		}
+		e.target.value = '';
+	}
+
+	async function handleSaveAsTemplate() {
+		if (!selectedAgent || !templateName.trim()) return;
+		try {
+			await saveAgentAsTemplate(selectedAgent.id, templateName.trim());
+			showTemplatePrompt = false;
+			templateName = '';
+			alert('Template saved successfully!');
+		} catch (e) {
+			console.error('Failed to save template:', e);
+			alert('Failed to save template: ' + e.message);
+		}
+	}
+
 	function getStatusColor(status) {
 		switch (status) {
 			case 'idle': return 'var(--success)';
@@ -212,10 +244,18 @@
 <div class="agent-manager">
 	<div class="sidebar">
 		<div class="sidebar-header">
-			<h2>Agents</h2>
-			<button class="create-btn" onclick={() => showCreateModal = true}>
-				+ Create Agent
-			</button>
+			<div class="sidebar-actions">
+				<button class="export-btn" onclick={() => importInput.click()} title="Import Templates JSON">
+					Import
+				</button>
+				<button class="export-btn" onclick={exportTemplates} title="Export Templates JSON">
+					Export
+				</button>
+				<button class="create-btn" onclick={() => showCreateModal = true}>
+					+ Create Agent
+				</button>
+			</div>
+			<input type="file" accept=".json" bind:this={importInput} onchange={handleImportTemplates} hidden />
 		</div>
 
 		<div class="agent-list">
@@ -270,6 +310,9 @@
 									Cancel
 								</button>
 							{:else}
+								<button class="btn template-btn" onclick={() => showTemplatePrompt = !showTemplatePrompt}>
+									Save as Template
+								</button>
 								<button class="btn edit-btn" onclick={startEdit}>
 									Edit
 								</button>
@@ -287,10 +330,34 @@
 								{/if}
 							{/if}
 						{:else}
+							<button class="btn template-btn" onclick={() => showTemplatePrompt = !showTemplatePrompt}>
+								Save as Template
+							</button>
 							<span class="master-badge">Master Agent</span>
 						{/if}
 					</div>
 				</div>
+
+				{#if showTemplatePrompt}
+					<div class="template-prompt">
+						<label for="template-name">Template Name</label>
+						<div class="template-prompt-row">
+							<input
+								id="template-name"
+								type="text"
+								bind:value={templateName}
+								placeholder="e.g. Python Developer"
+								onkeydown={(e) => { if (e.key === 'Enter') handleSaveAsTemplate(); }}
+							/>
+							<button class="btn save-btn" onclick={handleSaveAsTemplate} disabled={!templateName.trim()}>
+								Save
+							</button>
+							<button class="btn cancel-btn" onclick={() => { showTemplatePrompt = false; templateName = ''; }}>
+								Cancel
+							</button>
+						</div>
+					</div>
+				{/if}
 
 				{#if editMode}
 					<div class="edit-form">
@@ -507,6 +574,26 @@
 	.sidebar-header h2 {
 		font-size: 18px;
 		font-weight: 600;
+	}
+
+	.sidebar-actions {
+		display: flex;
+		gap: 6px;
+	}
+
+	.export-btn {
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+		padding: 6px 10px;
+		border-radius: 6px;
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	.export-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 
 	.create-btn {
@@ -1011,5 +1098,52 @@
 		height: 100%;
 		color: var(--text-muted);
 		font-size: 14px;
+	}
+
+	.template-btn {
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+	}
+
+	.template-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.template-prompt {
+		background: var(--bg-secondary);
+		padding: 12px 16px;
+		border-radius: 8px;
+		margin-bottom: 16px;
+		border: 1px solid var(--border);
+	}
+
+	.template-prompt label {
+		display: block;
+		font-size: 12px;
+		font-weight: 600;
+		margin-bottom: 6px;
+		color: var(--text-secondary);
+	}
+
+	.template-prompt-row {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+
+	.template-prompt-row input {
+		flex: 1;
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 6px 10px;
+		font-size: 14px;
+	}
+
+	.template-prompt-row input:focus {
+		outline: none;
+		border-color: var(--accent);
 	}
 </style>

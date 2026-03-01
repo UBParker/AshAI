@@ -8,6 +8,7 @@ import type {
 	Agent,
 	AgentCreateData,
 	AgentUpdateData,
+	AgentTemplate,
 	Message,
 	Settings,
 	KnowledgeItem,
@@ -194,6 +195,65 @@ export function updateKnowledge(id: string, data: Partial<KnowledgeItem>): Promi
 
 export function deleteKnowledge(id: string): Promise<void> {
 	return apiFetch(`/api/knowledge/${id}`, { method: 'DELETE' });
+}
+
+// --- Agent Templates ---
+
+export function listTemplates(): Promise<AgentTemplate[]> {
+	return apiFetch<AgentTemplate[]>('/api/templates');
+}
+
+export function createTemplate(data: Omit<AgentTemplate, 'id'>): Promise<AgentTemplate> {
+	return apiFetch<AgentTemplate>('/api/templates', {
+		method: 'POST',
+		body: JSON.stringify(data)
+	});
+}
+
+export function deleteTemplate(id: string): Promise<void> {
+	return apiFetch(`/api/templates/${id}`, { method: 'DELETE' });
+}
+
+export function saveAgentAsTemplate(agentId: string, displayName: string, description: string = ''): Promise<AgentTemplate> {
+	return apiFetch<AgentTemplate>(`/api/templates/from-agent/${agentId}`, {
+		method: 'POST',
+		body: JSON.stringify({ display_name: displayName, description })
+	});
+}
+
+export async function exportTemplates(): Promise<void> {
+	const authHeaders = await _authHeaders();
+	const res = await fetch(`${_backendBase}/api/templates/export`, {
+		headers: { ...authHeaders },
+	});
+	if (!res.ok) {
+		throw new Error(`Export failed: ${res.status}`);
+	}
+	const blob = await res.blob();
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = 'agent_templates.json';
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+}
+
+export async function importTemplates(file: File): Promise<{ imported: number; skipped: number }> {
+	const authHeaders = await _authHeaders();
+	const formData = new FormData();
+	formData.append('file', file);
+	const res = await fetch(`${_backendBase}/api/templates/import`, {
+		method: 'POST',
+		headers: { ...authHeaders },
+		body: formData,
+	});
+	if (!res.ok) {
+		const body = await res.text();
+		throw new Error(`Import failed ${res.status}: ${body}`);
+	}
+	return res.json();
 }
 
 // --- Instance Info ---
