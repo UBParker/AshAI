@@ -29,7 +29,8 @@ RUN apk add --no-cache \
     openssh-server \
     git \
     sudo \
-    build-base
+    build-base \
+    coreutils
 
 # Configure sshd
 RUN mkdir -p /var/run/sshd \

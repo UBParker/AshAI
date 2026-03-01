@@ -27,9 +27,11 @@
 				listTools(),
 				listTemplates()
 			]);
+
 			providers = providerData;
 			tools = toolData;
 			templates = templateData;
+
 			if (providers.length > 0) {
 				const defaultP = providers.find(p => p.is_default) || providers[0];
 				providerName = defaultP.name;
@@ -44,7 +46,7 @@
 		if (!provider) return;
 		try {
 			const data = await listModels(provider);
-			models = data.models || [];
+			models = data || [];
 			if (models.length > 0) {
 				modelName = models[0];
 			}

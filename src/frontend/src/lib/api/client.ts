@@ -127,13 +127,14 @@ export function listProviders(): Promise<Provider[]> {
 }
 
 export function listModels(providerName: string): Promise<string[]> {
-	return apiFetch<string[]>(`/api/providers/${providerName}/models`);
+	return apiFetch<{provider: string, models: string[]}>(`/api/providers/${providerName}/models`)
+		.then(data => data.models || []);
 }
 
 // --- Tools ---
 
-export function listTools(): Promise<string[]> {
-	return apiFetch<string[]>('/api/tools');
+export function listTools(): Promise<any[]> {
+	return apiFetch<any[]>('/api/tools');
 }
 
 // --- Approvals ---
